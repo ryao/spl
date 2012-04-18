@@ -570,28 +570,28 @@ __init spl_init(void)
 	if ((rc = spl_debug_init()))
 		return rc;
 
-	if ((rc = spl_kmem_init()))
+	if ((rc = spl_tsd_init()))
 		SGOTO(out1, rc);
 
-	if ((rc = spl_mutex_init()))
+	if ((rc = spl_kmem_init()))
 		SGOTO(out2, rc);
 
-	if ((rc = spl_rw_init()))
+	if ((rc = spl_mutex_init()))
 		SGOTO(out3, rc);
 
-	if ((rc = spl_taskq_init()))
+	if ((rc = spl_rw_init()))
 		SGOTO(out4, rc);
 
-	if ((rc = spl_vn_init()))
+	if ((rc = spl_taskq_init()))
 		SGOTO(out5, rc);
 
-	if ((rc = spl_proc_init()))
+	if ((rc = spl_vn_init()))
 		SGOTO(out6, rc);
 
-	if ((rc = spl_kstat_init()))
+	if ((rc = spl_proc_init()))
 		SGOTO(out7, rc);
 
-	if ((rc = spl_tsd_init()))
+	if ((rc = spl_kstat_init()))
 		SGOTO(out8, rc);
 
 	if ((rc = spl_zlib_init()))
@@ -625,21 +625,21 @@ __init spl_init(void)
 out10:
 	spl_zlib_fini();
 out9:
-	spl_tsd_fini();
-out8:
 	spl_kstat_fini();
-out7:
+out8:
 	spl_proc_fini();
-out6:
+out7:
 	spl_vn_fini();
-out5:
+out6:
 	spl_taskq_fini();
-out4:
+out5:
 	spl_rw_fini();
-out3:
+out4:
 	spl_mutex_fini();
-out2:
+out3:
 	spl_kmem_fini();
+out2:
+	spl_tsd_fini();
 out1:
 	spl_debug_fini();
 
