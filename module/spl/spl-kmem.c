@@ -25,6 +25,7 @@
 \*****************************************************************************/
 
 #include <sys/kmem.h>
+#include <sys/tsd.h>
 #include <spl-debug.h>
 
 #ifdef SS_DEBUG_SUBSYS
@@ -32,6 +33,12 @@
 #endif
 
 #define SS_DEBUG_SUBSYS SS_KMEM
+
+/*
+ * A TLS hook to permit overrides on flags to allocations.
+ */
+uint_t spl_tsd_alloc_flag = 0;
+EXPORT_SYMBOL(spl_tsd_alloc_flag);
 
 /*
  * The minimum amount of memory measured in pages to be free at all
@@ -2191,6 +2198,8 @@ spl_kmem_init(void)
 
 	spl_register_shrinker(&spl_kmem_cache_shrinker);
 
+	tsd_create(&spl_tsd_alloc_flag, NULL);
+
 #ifdef DEBUG_KMEM
 	kmem_alloc_used_set(0);
 	vmem_alloc_used_set(0);
@@ -2224,6 +2233,8 @@ spl_kmem_fini(void)
 	spl_kmem_fini_tracking(&vmem_list, &vmem_lock);
 #endif /* DEBUG_KMEM */
 	SENTRY;
+
+	tsd_destroy(&spl_tsd_alloc_flag);
 
 	spl_unregister_shrinker(&spl_kmem_cache_shrinker);
 

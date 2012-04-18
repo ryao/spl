@@ -37,6 +37,7 @@
 #include <sys/types.h>
 #include <sys/vmsystm.h>
 #include <sys/kstat.h>
+#include <sys/tsd.h>
 
 /*
  * Memory allocation interfaces
@@ -55,6 +56,8 @@
 # define __GFP_ZERO                     0x8000
 #endif
 
+extern uint_t spl_tsd_alloc_flag;
+
 /*
  * __GFP_NOFAIL looks like it will be removed from the kernel perhaps as
  * early as 2.6.32.  To avoid this issue when it occurs in upstream kernels
@@ -66,6 +69,10 @@ static inline void *
 kmalloc_nofail(size_t size, gfp_t flags)
 {
 	void *ptr;
+	gfp_t *flag_override = tsd_get(spl_tsd_alloc_flag);
+
+	if (flag_override && *flag_override)
+		flags = *flag_override;
 
 	do {
 		ptr = kmalloc(size, flags);
@@ -78,6 +85,10 @@ static inline void *
 kzalloc_nofail(size_t size, gfp_t flags)
 {
 	void *ptr;
+	gfp_t *flag_override = tsd_get(spl_tsd_alloc_flag);
+
+	if (flag_override && *flag_override)
+		flags = *flag_override;
 
 	do {
 		ptr = kzalloc(size, flags);
@@ -91,6 +102,10 @@ kmalloc_node_nofail(size_t size, gfp_t flags, int node)
 {
 #ifdef HAVE_KMALLOC_NODE
 	void *ptr;
+	gfp_t *flag_override = tsd_get(spl_tsd_alloc_flag);
+
+	if (flag_override && *flag_override)
+		flags = *flag_override;
 
 	do {
 		ptr = kmalloc_node(size, flags, node);
@@ -106,6 +121,10 @@ static inline void *
 vmalloc_nofail(size_t size, gfp_t flags)
 {
 	void *ptr;
+	gfp_t *flag_override = tsd_get(spl_tsd_alloc_flag);
+
+	if (flag_override && *flag_override)
+		flags = *flag_override;
 
 	/*
 	 * Retry failed __vmalloc() allocations once every second.  The
