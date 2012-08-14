@@ -407,6 +407,8 @@ typedef struct spl_kmem_cache {
 	uint64_t		skc_obj_total;	/* Obj total current */
 	uint64_t		skc_obj_alloc;	/* Obj alloc current */
 	uint64_t		skc_obj_max;	/* Obj max historic */
+	void			*skc_next_slab; /* Next SLAB */
+	struct list_head	skc_next_list;  /* Next SLAB allocator list */
 } spl_kmem_cache_t;
 #define kmem_cache_t		spl_kmem_cache_t
 

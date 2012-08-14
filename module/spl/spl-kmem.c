@@ -24,6 +24,10 @@
  *  Solaris Porting Layer (SPL) Kmem Implementation.
 \*****************************************************************************/
 
+#include <linux/semaphore.h>
+#include <linux/list.h>
+#include <linux/mutex.h>
+#include <linux/kthread.h>
 #include <sys/kmem.h>
 #include <spl-debug.h>
 
@@ -47,6 +51,21 @@
  */
 
 struct kmem_cache *spl_slab_cache;
+
+/*
+ * SPL Delayed Allocation thread book keeping
+ */
+
+struct task_struct *spl_slab_allocator;
+struct semaphore spl_slab_allocator_notify;
+struct mutex spl_slab_allocator_list_mutex;
+struct list_head spl_slab_allocator_list;
+enum spl_slab_allocator_state {
+    UNDEFINED,
+    RUNNING,
+    STOPPING,
+    DEAD
+} spl_slab_allocator_state = UNDEFINED;
 
 /*
  * The minimum amount of memory measured in pages to be free at all
@@ -958,6 +977,27 @@ spl_offslab_size(spl_kmem_cache_t *skc)
 }
 
 /*
+ * Notify worker thread to preallocate next slab
+ */
+
+static void
+spl_preallocate_next_slab(spl_kmem_cache_t *skc)
+{
+
+	/* Setup cache for next SLAB allocation */
+	skc->skc_next_slab = NULL;
+
+	/* Give work to worker thread */
+	mutex_lock(&spl_slab_allocator_list_mutex);
+	list_add_tail(&skc->skc_next_list, &spl_slab_allocator_list);
+	mutex_unlock(&spl_slab_allocator_list_mutex);
+
+	/* Notify worker thread that it has work */
+	up(&spl_slab_allocator_notify);
+
+}
+
+/*
  * It's important that we pack the spl_kmem_obj_t structure and the
  * actual objects in to one large address space to minimize the number
  * of calls to the allocator.  It is far better to do a few large
@@ -997,9 +1037,25 @@ spl_slab_alloc(spl_kmem_cache_t *skc, int flags)
 	uint32_t obj_size, offslab_size = 0;
 	int i,  rc = 0;
 
-	base = kv_alloc(skc, skc->skc_slab_size, flags);
-	if (base == NULL)
-		SRETURN(NULL);
+	/* Consume preallocated space to return next slab. A worker thread
+	 * should always allocate the following slab between invocations of
+	 * this, so this function should always return a new SLAB. In the event
+	 * that we fail to perform an allocation in time, we resort to invoking
+	 * kv_alloc() directly.
+	 */
+	if (base = skc->skc_next_slab)
+	{
+		spl_preallocate_next_slab(skc);
+	}
+	else
+	{
+		base = kv_alloc(skc, skc->skc_slab_size, flags);
+
+		if (base == NULL)
+		{
+			SRETURN(NULL);
+		}
+	}
 
 	sks = (spl_kmem_slab_t *)base;
 	sks->sks_magic = SKS_MAGIC;
@@ -1446,6 +1502,7 @@ spl_kmem_cache_create(char *name, size_t size, size_t align,
 	INIT_LIST_HEAD(&skc->skc_list);
 	INIT_LIST_HEAD(&skc->skc_complete_list);
 	INIT_LIST_HEAD(&skc->skc_partial_list);
+	INIT_LIST_HEAD(&skc->skc_next_list);
 	spin_lock_init(&skc->skc_lock);
 	skc->skc_slab_fail = 0;
 	skc->skc_slab_create = 0;
@@ -1480,6 +1537,10 @@ spl_kmem_cache_create(char *name, size_t size, size_t align,
 	if (rc)
 		SGOTO(out, rc);
 
+	skc->skc_next_slab = kv_alloc(skc, skc->skc_slab_size, GFP_KERNEL);
+	if (0 == skc->skc_next_slab)
+		SGOTO(out, rc);
+
 	spl_init_delayed_work(&skc->skc_work, spl_cache_age, skc);
 	schedule_delayed_work(&skc->skc_work, skc->skc_delay / 3 * HZ);
 
@@ -1490,7 +1551,7 @@ spl_kmem_cache_create(char *name, size_t size, size_t align,
 	SRETURN(skc);
 out:
 	kmem_free(skc->skc_name, skc->skc_name_size);
-	kmem_free(skc, sizeof(*skc));
+	kmem_cache_free(spl_slab_cache, skc);
 	SRETURN(NULL);
 }
 EXPORT_SYMBOL(spl_kmem_cache_create);
@@ -1550,6 +1611,44 @@ spl_kmem_cache_destroy(spl_kmem_cache_t *skc)
 
 	kmem_free(skc->skc_name, skc->skc_name_size);
 	spin_unlock(&skc->skc_lock);
+
+	/* Do a redundant check to avoid needing to lock the mutex */
+	if (NULL == skc->skc_next_slab)
+	{
+		spl_kmem_cache_t *pos, *next;
+
+		/* Honor locking order to avoid deadlock */
+		mutex_lock(&spl_slab_allocator_list_mutex);
+
+		/* skc->skc_next_slab could have changed while waiting for the lock */
+		if (NULL == skc->skc_next_slab)
+		{
+
+			/* Traverse list and remove entry */
+			list_for_each_entry_safe(pos,
+				next,
+				&spl_slab_allocator_list,
+				skc_next_list)
+			{
+				if (pos == skc)
+				{
+					list_del(&skc->skc_next_list);
+					break;
+				}
+			}
+
+		}
+		else
+		{
+			kv_free(skc, skc->skc_next_slab, skc->skc_slab_size);
+		}
+
+		mutex_unlock(&spl_slab_allocator_list_mutex);
+	}
+	else
+	{
+		kv_free(skc, skc->skc_next_slab, skc->skc_slab_size);
+	}
 
 	kmem_cache_free(spl_slab_cache, skc);
 
@@ -1623,7 +1722,7 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags)
 	}
 
 	/* Allocate a new slab for the cache */
-	sks = spl_slab_alloc(skc, flags | __GFP_NORETRY | KM_NODEBUG);
+	sks = spl_slab_alloc(skc, flags);
 	if (sks == NULL)
 		SGOTO(out, sks = NULL);
 
@@ -2200,6 +2299,54 @@ spl_kmem_init_kallsyms_lookup(void)
 	return 0;
 }
 
+/*
+ * Worker thread to allocate slabs asynchronously. We use a worker thread
+ * instead of Linux work queues to avoid spinlock contention in virtual memory
+ * allocations.
+ */
+
+int
+spl_slab_allocator_thread( void * unused )
+{
+
+	spl_kmem_cache_t * skc;
+
+	spl_slab_allocator_state = RUNNING;
+
+	while (1)
+	{
+		down(&spl_slab_allocator_notify);
+
+		if (RUNNING != spl_slab_allocator_state)
+		{
+			ASSERT(STOPPING == spl_slab_allocator_state);
+			spl_slab_allocator_state = DEAD;
+			return 0;
+		}
+
+		/* Get next item */
+		mutex_lock(&spl_slab_allocator_list_mutex);
+
+		skc = list_entry(spl_slab_allocator_list.next,
+			spl_kmem_cache_t,
+			skc_next_list);
+
+		/* Dequeue item from list */
+		list_del_init(&skc->skc_next_list);
+
+		ASSERT(NULL == skc->skc_next_slab);
+
+		/* Allocate next slab */
+		skc->skc_next_slab = kv_alloc(skc, skc->skc_slab_size, GFP_KERNEL);
+
+		ASSERT(NULL != skc->skc_next_slab);
+
+		mutex_unlock(&spl_slab_allocator_list_mutex);
+
+	}
+
+}
+
 int
 spl_kmem_init(void)
 {
@@ -2207,7 +2354,16 @@ spl_kmem_init(void)
 	SENTRY;
 
 	init_rwsem(&spl_kmem_cache_sem);
+
 	INIT_LIST_HEAD(&spl_kmem_cache_list);
+
+	sema_init(&spl_slab_allocator_notify, 0);
+	mutex_init(&spl_slab_allocator_list_mutex);
+
+	INIT_LIST_HEAD(&spl_slab_allocator_list);
+
+	spl_slab_allocator = kthread_run(&spl_slab_allocator_thread,
+		0, "spl_slab_allocator");
 
 	spl_slab_cache = kmem_cache_create("spl_slab_cache",
 		sizeof(spl_kmem_cache_t),
@@ -2251,9 +2407,16 @@ spl_kmem_fini(void)
 #endif /* DEBUG_KMEM */
 	SENTRY;
 
-	kmem_cache_destroy(spl_slab_cache);
-
 	spl_unregister_shrinker(&spl_kmem_cache_shrinker);
+
+	/* Kill SPL SLAB Allocator thread */
+	spl_slab_allocator_state = STOPPING;
+	up(&spl_slab_allocator_notify);
+	kthread_stop(spl_slab_allocator);
+	/* FIXME: Do we have a zombie? */
+	/*release_task(spl_slab_allocator);*/
+
+	kmem_cache_destroy(spl_slab_cache);
 
 	SEXIT;
 }
