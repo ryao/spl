@@ -64,6 +64,7 @@ AC_DEFUN([SPL_AC_CONFIG_KERNEL], [
 	SPL_AC_USER_PATH_DIR
 	SPL_AC_SET_FS_PWD
 	SPL_AC_2ARGS_SET_FS_PWD
+	SPL_AC_LOOKUP_BDEV
 	SPL_AC_2ARGS_VFS_UNLINK
 	SPL_AC_4ARGS_VFS_RENAME
 	SPL_AC_VFS_FSYNC
@@ -1730,6 +1731,26 @@ AC_DEFUN([SPL_AC_2ARGS_SET_FS_PWD],
 		AC_DEFINE(HAVE_2ARGS_SET_FS_PWD, 1,
 		          [set_fs_pwd() wants 2 args])
 	],[
+		AC_MSG_RESULT(no)
+	])
+])
+
+dnl #
+dnl # 2.6.12 - 2.6.26 API compat,
+dnl # lookup_bdev() was first available in Linux 2.6.12, but it was not
+dnl # exported until Linux 2.6.27.
+dnl #
+AC_DEFUN([SPL_AC_LOOKUP_BDEV],
+	[AC_MSG_CHECKING([whether lookup_bdev() is available])
+	SPL_LINUX_TRY_COMPILE_SYMBOL([
+		#include <linux/fs.h>
+	], [
+		lookup_bdev("");
+	], [lookup_bdev], [fs/block_dev.c], [
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_LOOKUP_BDEV, 1,
+		          [lookup_bdev() is available])
+	], [
 		AC_MSG_RESULT(no)
 	])
 ])

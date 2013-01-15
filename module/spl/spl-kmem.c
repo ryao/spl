@@ -195,6 +195,11 @@ shrink_icache_memory_t shrink_icache_memory_fn = SYMBOL_POISON;
 EXPORT_SYMBOL(shrink_icache_memory_fn);
 #endif /* HAVE_SHRINK_ICACHE_MEMORY */
 
+#ifndef HAVE_LOOKUP_BDEV
+lookup_bdev_t lookup_bdev_fn = SYMBOL_POISON;
+EXPORT_SYMBOL(lookup_bdev_fn);
+#endif /* HAVE_LOOKUP_BDEV */
+
 pgcnt_t
 spl_kmem_availrmem(void)
 {
@@ -2396,6 +2401,11 @@ spl_kmem_init_kallsyms_lookup(void)
 	shrink_icache_memory_fn = (shrink_icache_memory_t)
 		spl_kallsyms_lookup_name("shrink_icache_memory");
 #endif /* HAVE_SHRINK_ICACHE_MEMORY */
+
+#ifndef HAVE_LOOKUP_BDEV
+	lookup_bdev_fn = (lookup_bdev_t)
+		spl_kallsyms_lookup_name("lookup_bdev");
+#endif /* HAVE_LOOKUP_BDEV */
 
 	return 0;
 }

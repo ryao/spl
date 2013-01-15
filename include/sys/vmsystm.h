@@ -70,6 +70,12 @@ extern size_t vmem_size(vmem_t *vmp, int typemask);
  * the above mentioned /proc/meminfo file would make use of it.
  */
 
+# ifndef HAVE_LOOKUP_BDEV
+typedef struct block_device *(*lookup_bdev_t)(const char *pathname);
+extern lookup_bdev_t lookup_bdev_fn;
+# define first_online_pgdat()	first_online_pgdat_fn()
+
+# endif /* HAVE_FIRST_ONLINE_PGDAT */
 /* Source linux/fs/proc/mmu.c */
 #ifndef HAVE_GET_VMALLOC_INFO
 #ifdef CONFIG_MMU
