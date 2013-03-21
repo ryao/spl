@@ -818,12 +818,6 @@ EXPORT_SYMBOL(vmem_free_debug);
  * small virtual address space on 32bit arches.  This will seriously
  * constrain the size of the slab caches and their performance.
  *
- * XXX: Improve the partial slab list by carefully maintaining a
- *      strict ordering of fullest to emptiest slabs based on
- *      the slab reference count.  This guarantees the when freeing
- *      slabs back to the system we need only linearly traverse the
- *      last N slabs in the list to discover all the freeable slabs.
- *
  * XXX: NUMA awareness for optionally allocating memory close to a
  *      particular core.  This can be advantageous if you know the slab
  *      object will be short lived and primarily accessed from one core.
@@ -973,7 +967,6 @@ spl_slab_alloc(spl_kmem_cache_t *skc, int flags)
 	sks->sks_objs = skc->skc_slab_objs;
 	sks->sks_age = jiffies;
 	sks->sks_cache = skc;
-	INIT_LIST_HEAD(&sks->sks_list);
 	INIT_LIST_HEAD(&sks->sks_free_list);
 	sks->sks_ref = 0;
 	obj_size = spl_obj_size(skc);
@@ -1037,15 +1030,16 @@ spl_slab_free(spl_kmem_slab_t *sks,
 
 	/*
 	 * Update slab/objects counters in the cache, then remove the
-	 * slab from the skc->skc_partial_list.  Finally add the slab
+	 * slab from the skc->skc_partial_tree.  Finally add the slab
 	 * and all its objects in to the private work lists where the
 	 * destructors will be called and the memory freed to the system.
+	 * We (ab)use the sks_free_list for the private work list.
 	 */
 	skc->skc_obj_total -= sks->sks_objs;
 	skc->skc_slab_total--;
-	list_del(&sks->sks_list);
-	list_add(&sks->sks_list, sks_list);
+	rb_erase(&sks->sks_node, &skc->skc_partial_tree);
 	list_splice_init(&sks->sks_free_list, sko_list);
+	list_add(&sks->sks_free_list, sks_list);
 
 	SEXIT;
 }
@@ -1076,9 +1070,10 @@ spl_slab_reclaim(spl_kmem_cache_t *skc, int count, int flag)
 	 * however when flag is set the delay will not be used.
 	 */
 	spin_lock(&skc->skc_lock);
-	list_for_each_entry_safe_reverse(sks,m,&skc->skc_partial_list,sks_list){
+	while ((sks = container_of(rb_last(&skc->skc_partial_tree),
+		spl_kmem_slab_t, sks_node))) {
 		/*
-		 * All empty slabs are at the end of skc->skc_partial_list,
+		 * All empty slabs are at the left of skc->skc_partial_tree,
 		 * therefore once a non-empty slab is found we can stop
 		 * scanning.  Additionally, stop when reaching the target
 		 * reclaim 'count' if a non-zero threshold is given.
@@ -1116,13 +1111,39 @@ spl_slab_reclaim(spl_kmem_cache_t *skc, int count, int flag)
 		cond_resched();
 	}
 
-	list_for_each_entry_safe(sks, m, &sks_list, sks_list) {
+	list_for_each_entry_safe(sks, m, &sks_list, sks_free_list) {
 		ASSERT(sks->sks_magic == SKS_MAGIC);
 		kv_free(skc, sks, skc->skc_slab_size);
 		cond_resched();
 	}
 
 	SEXIT;
+}
+
+/*
+ * We insert slabs with fewer free objects on the left and more free objects on
+ * the right.
+ */
+static void
+spl_kmem_slab_insert(struct rb_root *root, spl_kmem_slab_t *sks)
+{
+	struct rb_node **new = &(root->rb_node), *parent = NULL;
+	spl_kmem_slab_t *sks_tmp;
+	uint32_t free_objs = sks->sks_objs - sks->sks_ref;
+
+	while (*new) {
+		sks_tmp = container_of(*new, spl_kmem_slab_t, sks_node);
+
+		parent = *new;
+		if (free_objs < sks_tmp->sks_objs - sks_tmp->sks_ref)
+			new = &((*new)->rb_left);
+		else
+			new = &((*new)->rb_right);
+	}
+
+	rb_link_node(&sks->sks_node, parent, new);
+	rb_insert_color(&sks->sks_node, root);
+
 }
 
 static spl_kmem_emergency_t *
@@ -1183,7 +1204,7 @@ spl_emergency_alloc(spl_kmem_cache_t *skc, int flags, void **obj)
 
 	/* Last chance use a partial slab if one now exists */
 	spin_lock(&skc->skc_lock);
-	empty = list_empty(&skc->skc_partial_list);
+	empty = RB_EMPTY_ROOT(&skc->skc_partial_tree);
 	spin_unlock(&skc->skc_lock);
 	if (!empty)
 		SRETURN(-EEXIST);
@@ -1586,7 +1607,7 @@ spl_kmem_cache_create(char *name, size_t size, size_t align,
 	atomic_set(&skc->skc_ref, 0);
 
 	INIT_LIST_HEAD(&skc->skc_list);
-	INIT_LIST_HEAD(&skc->skc_partial_list);
+	skc->skc_partial_tree = RB_ROOT;
 	skc->skc_emergency_tree = RB_ROOT;
 	spin_lock_init(&skc->skc_lock);
 	init_waitqueue_head(&skc->skc_waitq);
@@ -1762,7 +1783,7 @@ spl_cache_grow_work(void *data)
 	if (sks) {
 		skc->skc_slab_total++;
 		skc->skc_obj_total += sks->sks_objs;
-		list_add_tail(&sks->sks_list, &skc->skc_partial_list);
+		spl_kmem_slab_insert(&skc->skc_partial_tree, sks);
 	}
 
 	atomic_dec(&skc->skc_ref);
@@ -1890,7 +1911,7 @@ spl_cache_refill(spl_kmem_cache_t *skc, spl_kmem_magazine_t *skm, int flags)
 
 	while (refill > 0) {
 		/* No slabs available we may need to grow the cache */
-		if (list_empty(&skc->skc_partial_list)) {
+		if (RB_EMPTY_ROOT(&skc->skc_partial_tree)) {
 			spin_unlock(&skc->skc_lock);
 
 			local_irq_enable();
@@ -1918,8 +1939,7 @@ spl_cache_refill(spl_kmem_cache_t *skc, spl_kmem_magazine_t *skm, int flags)
 		}
 
 		/* Grab the next available slab */
-		sks = list_entry((&skc->skc_partial_list)->next,
-		                 spl_kmem_slab_t, sks_list);
+		sks = container_of(rb_first(&skc->skc_partial_tree), spl_kmem_slab_t, sks_node);
 		ASSERT(sks->sks_magic == SKS_MAGIC);
 		ASSERT(sks->sks_ref < sks->sks_objs);
 		ASSERT(!list_empty(&sks->sks_free_list));
@@ -1932,9 +1952,9 @@ spl_cache_refill(spl_kmem_cache_t *skc, spl_kmem_magazine_t *skm, int flags)
 			skm->skm_objs[skm->skm_avail++]=spl_cache_obj(skc,sks);
 		}
 
-		/* Remove slab from skc_partial_list when full */
+		/* Remove slab from skc_partial_tree when full */
 		if (sks->sks_ref == sks->sks_objs) {
-			list_del(&sks->sks_list);
+			rb_erase(&sks->sks_node, &skc->skc_partial_tree);
 		}
 	}
 
@@ -1967,20 +1987,11 @@ spl_cache_shrink(spl_kmem_cache_t *skc, void *obj)
 	sks->sks_ref--;
 	skc->skc_obj_alloc--;
 
-	/* Add slab to skc_partial_list when no longer full.  Slabs
-	 * are added to the head to keep the partial list is quasi-full
-	 * sorted order.  Fuller at the head, emptier at the tail. */
-	if (sks->sks_ref == (sks->sks_objs - 1)) {
-		list_add(&sks->sks_list, &skc->skc_partial_list);
-	}
-
-	/* Move empty slabs to the end of the partial list so
-	 * they can be easily found and freed during reclamation. */
-	if (sks->sks_ref == 0) {
-		list_del(&sks->sks_list);
-		list_add_tail(&sks->sks_list, &skc->skc_partial_list);
-		skc->skc_slab_alloc--;
-	}
+	/*
+	 * Add slab to skc_partial_tree when no longer full.
+	 */
+	if (sks->sks_ref == (sks->sks_objs - 1))
+		spl_kmem_slab_insert(&skc->skc_partial_tree, sks);
 
 	SEXIT;
 }

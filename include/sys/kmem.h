@@ -427,7 +427,7 @@ typedef struct spl_kmem_slab {
         uint32_t		sks_magic;	/* Sanity magic */
 	uint32_t		sks_objs;	/* Objects per slab */
 	struct spl_kmem_cache	*sks_cache;	/* Owned by cache */
-	struct list_head	sks_list;	/* Slab list linkage */
+	struct rb_node		sks_node;	/* Slab list linkage */
 	struct list_head	sks_free_list;	/* Free object list */
 	unsigned long		sks_age;	/* Last modify jiffie */
 	uint32_t		sks_ref;	/* Ref count used objects */
@@ -466,7 +466,7 @@ typedef struct spl_kmem_cache {
 	atomic_t		skc_ref;	/* Ref count callers */
 	taskqid_t		skc_taskqid;	/* Slab reclaim task */
 	struct list_head	skc_list;	/* List of caches linkage */
-	struct list_head	skc_partial_list; /* Partially alloc'ed */
+	struct rb_root		skc_partial_tree; /* Partially alloc'ed */
 	struct rb_root		skc_emergency_tree; /* Min sized objects */
 	spinlock_t		skc_lock;	/* Cache lock */
 	wait_queue_head_t	skc_waitq;	/* Allocation waiters */
