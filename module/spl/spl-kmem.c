@@ -1586,7 +1586,6 @@ spl_kmem_cache_create(char *name, size_t size, size_t align,
 	atomic_set(&skc->skc_ref, 0);
 
 	INIT_LIST_HEAD(&skc->skc_list);
-	INIT_LIST_HEAD(&skc->skc_complete_list);
 	INIT_LIST_HEAD(&skc->skc_partial_list);
 	skc->skc_emergency_tree = RB_ROOT;
 	spin_lock_init(&skc->skc_lock);
@@ -1697,7 +1696,6 @@ spl_kmem_cache_destroy(spl_kmem_cache_t *skc)
 	ASSERT3U(skc->skc_slab_total, ==, 0);
 	ASSERT3U(skc->skc_obj_total, ==, 0);
 	ASSERT3U(skc->skc_obj_emergency, ==, 0);
-	ASSERT(list_empty(&skc->skc_complete_list));
 
 	kmem_free(skc->skc_name, skc->skc_name_size);
 	spin_unlock(&skc->skc_lock);
@@ -1934,10 +1932,9 @@ spl_cache_refill(spl_kmem_cache_t *skc, spl_kmem_magazine_t *skm, int flags)
 			skm->skm_objs[skm->skm_avail++]=spl_cache_obj(skc,sks);
 		}
 
-		/* Move slab to skc_complete_list when full */
+		/* Remove slab from skc_partial_list when full */
 		if (sks->sks_ref == sks->sks_objs) {
 			list_del(&sks->sks_list);
-			list_add(&sks->sks_list, &skc->skc_complete_list);
 		}
 	}
 
@@ -1970,11 +1967,10 @@ spl_cache_shrink(spl_kmem_cache_t *skc, void *obj)
 	sks->sks_ref--;
 	skc->skc_obj_alloc--;
 
-	/* Move slab to skc_partial_list when no longer full.  Slabs
+	/* Add slab to skc_partial_list when no longer full.  Slabs
 	 * are added to the head to keep the partial list is quasi-full
 	 * sorted order.  Fuller at the head, emptier at the tail. */
 	if (sks->sks_ref == (sks->sks_objs - 1)) {
-		list_del(&sks->sks_list);
 		list_add(&sks->sks_list, &skc->skc_partial_list);
 	}
 
