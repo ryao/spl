@@ -1795,7 +1795,7 @@ spl_cache_reclaim_wait(void *word)
 static int
 spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 {
-	int remaining, rc;
+	int remaining, rc = 0;
 	SENTRY;
 
 	ASSERT(skc->skc_magic == SKC_MAGIC);
@@ -1858,9 +1858,9 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 				skc->skc_obj_deadlock++;
 			}
 			spin_unlock(&skc->skc_lock);
+			rc = -ENOMEM;
 		}
 
-		rc = -ENOMEM;
 	}
 
 	SRETURN(rc);
