@@ -34,6 +34,21 @@
 #define SS_DEBUG_SUBSYS SS_KMEM
 
 /*
+ * Prevent spl-kmem.h from preventing access to Linux SLAB allocator
+ */
+
+#undef kmem_cache_create
+#undef kmem_cache_destroy
+#undef kmem_cache_alloc
+#undef kmem_cache_free
+
+/*
+ * Linux SLAB cache for spl_kmem_cache_t objects
+ */
+
+struct kmem_cache *spl_kmem_alloc_cache;
+
+/*
  * Cache expiration was implemented because it was part of the default Solaris
  * kmem_cache behavior.  The idea is that per-cpu objects which haven't been
  * accessed in several seconds should be returned to the cache.  On the other
@@ -1769,7 +1784,7 @@ spl_cache_grow_work(void *data)
 	wake_up_all(&skc->skc_waitq);
 	spin_unlock(&skc->skc_lock);
 
-	kfree(ska);
+	kmem_cache_free(spl_kmem_alloc_cache, ska);
 }
 
 /*
@@ -1820,7 +1835,7 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 	if (test_and_set_bit(KMC_BIT_GROWING, &skc->skc_flags) == 0) {
 		spl_kmem_alloc_t *ska;
 
-		ska = kmalloc(sizeof(*ska), flags);
+		ska = kmem_cache_alloc(spl_kmem_alloc_cache, flags);
 		if (ska == NULL) {
 			clear_bit(KMC_BIT_GROWING, &skc->skc_flags);
 			wake_up_all(&skc->skc_waitq);
@@ -2422,6 +2437,12 @@ spl_kmem_init(void)
 	spl_kmem_init_tracking(&vmem_list, &vmem_lock, VMEM_TABLE_SIZE);
 #endif
 
+	spl_kmem_alloc_cache = kmem_cache_create("spl_kmem_alloc_cache",
+		sizeof(spl_kmem_alloc_t),
+		0,
+		0,
+		NULL);
+
 	init_rwsem(&spl_kmem_cache_sem);
 	INIT_LIST_HEAD(&spl_kmem_cache_list);
 	spl_kmem_cache_taskq = taskq_create("spl_kmem_cache",
@@ -2459,6 +2480,8 @@ spl_kmem_fini(void)
 	spl_kmem_fini_tracking(&kmem_list, &kmem_lock);
 	spl_kmem_fini_tracking(&vmem_list, &vmem_lock);
 #endif /* DEBUG_KMEM */
+
+	kmem_cache_destroy(spl_kmem_alloc_cache);
 
 	SEXIT;
 }
