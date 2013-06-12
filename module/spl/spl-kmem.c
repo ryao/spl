@@ -1743,15 +1743,20 @@ spl_cache_grow_work(void *data)
 {
 	spl_kmem_alloc_t *ska = (spl_kmem_alloc_t *)data;
 	spl_kmem_cache_t *skc = ska->ska_cache;
-	spl_kmem_slab_t *sks;
+	spl_kmem_slab_t *sks = NULL;
 
-	sks = spl_slab_alloc(skc, ska->ska_flags | __GFP_NORETRY | KM_NODEBUG);
-	spin_lock(&skc->skc_lock);
-	if (sks) {
-		skc->skc_slab_total++;
-		skc->skc_obj_total += sks->sks_objs;
-		list_add_tail(&sks->sks_list, &skc->skc_partial_list);
+	while (1) {
+		sks = spl_slab_alloc(skc, ska->ska_flags
+			| __GFP_WAIT | KM_NODEBUG);
+		if (sks)
+			break;
+		schedule();
 	}
+	spin_lock(&skc->skc_lock);
+
+	skc->skc_slab_total++;
+	skc->skc_obj_total += sks->sks_objs;
+	list_add_tail(&sks->sks_list, &skc->skc_partial_list);
 
 	atomic_dec(&skc->skc_ref);
 	clear_bit(KMC_BIT_GROWING, &skc->skc_flags);
@@ -1784,7 +1789,7 @@ spl_cache_reclaim_wait(void *word)
 static int
 spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 {
-	int remaining, rc;
+	int remaining, rc = 0;
 	SENTRY;
 
 	ASSERT(skc->skc_magic == SKC_MAGIC);
@@ -1819,7 +1824,7 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 
 		atomic_inc(&skc->skc_ref);
 		ska->ska_cache = skc;
-		ska->ska_flags = flags & ~__GFP_FS;
+		ska->ska_flags = flags & ~__GFP_NORETRY;
 		taskq_init_ent(&ska->ska_tqe);
 		taskq_dispatch_ent(spl_kmem_cache_taskq,
 		    spl_cache_grow_work, ska, 0, &ska->ska_tqe);
@@ -1840,16 +1845,20 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 		remaining = wait_event_timeout(skc->skc_waitq,
 					       spl_cache_grow_wait(skc), HZ);
 
-		if (!remaining && test_bit(KMC_BIT_VMEM, &skc->skc_flags)) {
-			spin_lock(&skc->skc_lock);
-			if (test_bit(KMC_BIT_GROWING, &skc->skc_flags)) {
-				set_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags);
-				skc->skc_obj_deadlock++;
+		if (!remaining) {
+			if (!test_bit(KMC_BIT_KMEM, &skc->skc_flags)) {
+				if (test_bit(KMC_BIT_GROWING, &skc->skc_flags)) {
+					spin_lock(&skc->skc_lock);
+					skc->skc_obj_deadlock++;
+					spin_unlock(&skc->skc_lock);
+					rc = spl_emergency_alloc(skc, flags, obj);
+				} else {
+					rc = -ENOMEM;
+				}
+			} else {
+				rc = -ENOMEM;
 			}
-			spin_unlock(&skc->skc_lock);
 		}
-
-		rc = -ENOMEM;
 	}
 
 	SRETURN(rc);
