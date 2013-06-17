@@ -111,9 +111,16 @@ kmalloc_nofail(size_t size, gfp_t flags)
 
 	sanitize_flags(current, &flags);
 
-	do {
+	flags |= __GFP_NORETRY;
+
+	while (1) {
 		ptr = kmalloc(size, flags);
-	} while (ptr == NULL && (flags & __GFP_WAIT));
+		if (unlikely((ptr == NULL) && (flags & __GFP_WAIT))) {
+			cond_resched();
+		} else {
+			break;
+		}
+	}
 
 	return ptr;
 }
@@ -125,9 +132,16 @@ kzalloc_nofail(size_t size, gfp_t flags)
 
 	sanitize_flags(current, &flags);
 
-	do {
+	flags |= __GFP_NORETRY;
+
+	while (1) {
 		ptr = kzalloc(size, flags);
-	} while (ptr == NULL && (flags & __GFP_WAIT));
+		if (unlikely((ptr == NULL) && (flags & __GFP_WAIT))) {
+			cond_resched();
+		} else {
+			break;
+		}
+	}
 
 	return ptr;
 }
@@ -140,9 +154,16 @@ kmalloc_node_nofail(size_t size, gfp_t flags, int node)
 
 	sanitize_flags(current, &flags);
 
-	do {
+	flags |= __GFP_NORETRY;
+
+	while (1) {
 		ptr = kmalloc_node(size, flags, node);
-	} while (ptr == NULL && (flags & __GFP_WAIT));
+		if (unlikely((ptr == NULL) && (flags & __GFP_WAIT))) {
+			cond_resched();
+		} else {
+			break;
+		}
+	}
 
 	return ptr;
 #else
@@ -157,27 +178,12 @@ vmalloc_nofail(size_t size, gfp_t flags)
 
 	sanitize_flags(current, &flags);
 
-	/*
-	 * Retry failed __vmalloc() allocations once every second.  The
-	 * rational for the delay is that the likely failure modes are:
-	 *
-	 * 1) The system has completely exhausted memory, in which case
-	 *    delaying 1 second for the memory reclaim to run is reasonable
-	 *    to avoid thrashing the system.
-	 * 2) The system has memory but has exhausted the small virtual
-	 *    address space available on 32-bit systems.  Retrying the
-	 *    allocation immediately will only result in spinning on the
-	 *    virtual address space lock.  It is better delay a second and
-	 *    hope that another process will free some of the address space.
-	 *    But the bottom line is there is not much we can actually do
-	 *    since we can never safely return a failure and honor the
-	 *    Solaris semantics.
-	 */
+	flags |= __GFP_NORETRY;
+
 	while (1) {
-		ptr = __vmalloc(size, flags | __GFP_HIGHMEM, PAGE_KERNEL);
+		ptr = __vmalloc(size, flags, PAGE_KERNEL);
 		if (unlikely((ptr == NULL) && (flags & __GFP_WAIT))) {
-			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(HZ);
+			cond_resched();
 		} else {
 			break;
 		}
