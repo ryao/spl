@@ -34,6 +34,21 @@
 #define SS_DEBUG_SUBSYS SS_KMEM
 
 /*
+ * Prevent spl-kmem.h from preventing access to Linux SLAB allocator
+ */
+
+#undef kmem_cache_create
+#undef kmem_cache_destroy
+#undef kmem_cache_alloc
+#undef kmem_cache_free
+
+/*
+ * Linux SLAB cache for spl_kmem_cache_t objects
+ */
+
+struct kmem_cache *spl_kmem_alloc_cache;
+
+/*
  * Cache expiration was implemented because it was part of the default Solaris
  * kmem_cache behavior.  The idea is that per-cpu objects which haven't been
  * accessed in several seconds should be returned to the cache.  On the other
@@ -999,9 +1014,6 @@ spl_slab_alloc(spl_kmem_cache_t *skc, int flags)
 		list_add_tail(&sko->sko_list, &sks->sks_free_list);
 	}
 
-	list_for_each_entry(sko, &sks->sks_free_list, sko_list)
-		if (skc->skc_ctor)
-			skc->skc_ctor(sko->sko_addr, skc->skc_private, flags);
 out:
 	if (rc) {
 		if (skc->skc_flags & KMC_OFFSLAB)
@@ -1107,9 +1119,6 @@ spl_slab_reclaim(spl_kmem_cache_t *skc, int count, int flag)
 	list_for_each_entry_safe(sko, n, &sko_list, sko_list) {
 		ASSERT(sko->sko_magic == SKO_MAGIC);
 
-		if (skc->skc_dtor)
-			skc->skc_dtor(sko->sko_addr, skc->skc_private);
-
 		if (skc->skc_flags & KMC_OFFSLAB)
 			kv_free(skc, sko->sko_addr, size);
 	}
@@ -1211,9 +1220,6 @@ spl_emergency_alloc(spl_kmem_cache_t *skc, int flags, void **obj)
 		SRETURN(-EINVAL);
 	}
 
-	if (skc->skc_ctor)
-		skc->skc_ctor(ske->ske_obj, skc->skc_private, flags);
-
 	*obj = ske->ske_obj;
 
 	SRETURN(0);
@@ -1239,9 +1245,6 @@ spl_emergency_free(spl_kmem_cache_t *skc, void *obj)
 
 	if (unlikely(ske == NULL))
 		SRETURN(-ENOENT);
-
-	if (skc->skc_dtor)
-		skc->skc_dtor(ske->ske_obj, skc->skc_private);
 
 	kfree(ske->ske_obj);
 	kfree(ske);
@@ -1766,11 +1769,10 @@ spl_cache_grow_work(void *data)
 
 	atomic_dec(&skc->skc_ref);
 	clear_bit(KMC_BIT_GROWING, &skc->skc_flags);
-	clear_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags);
 	wake_up_all(&skc->skc_waitq);
 	spin_unlock(&skc->skc_lock);
 
-	kfree(ska);
+	kmem_cache_free(spl_kmem_alloc_cache, ska);
 }
 
 /*
@@ -1795,7 +1797,7 @@ spl_cache_reclaim_wait(void *word)
 static int
 spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 {
-	int remaining, rc;
+	int remaining, rc = 0;
 	SENTRY;
 
 	ASSERT(skc->skc_magic == SKC_MAGIC);
@@ -1821,7 +1823,7 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 	if (test_and_set_bit(KMC_BIT_GROWING, &skc->skc_flags) == 0) {
 		spl_kmem_alloc_t *ska;
 
-		ska = kmalloc(sizeof(*ska), flags);
+		ska = kmem_cache_alloc(spl_kmem_alloc_cache, flags);
 		if (ska == NULL) {
 			clear_bit(KMC_BIT_GROWING, &skc->skc_flags);
 			wake_up_all(&skc->skc_waitq);
@@ -1845,22 +1847,19 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 	 * this point only new emergency objects will be allocated until the
 	 * asynchronous allocation completes and clears the deadlocked flag.
 	 */
-	if (test_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags)) {
-		rc = spl_emergency_alloc(skc, flags, obj);
-	} else {
-		remaining = wait_event_timeout(skc->skc_waitq,
-					       spl_cache_grow_wait(skc), HZ);
+	remaining = wait_event_timeout(skc->skc_waitq,
+				       spl_cache_grow_wait(skc), HZ);
 
-		if (!remaining && test_bit(KMC_BIT_VMEM, &skc->skc_flags)) {
-			spin_lock(&skc->skc_lock);
-			if (test_bit(KMC_BIT_GROWING, &skc->skc_flags)) {
-				set_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags);
-				skc->skc_obj_deadlock++;
-			}
-			spin_unlock(&skc->skc_lock);
+	if (!remaining && test_bit(KMC_BIT_VMEM, &skc->skc_flags)) {
+		spin_lock(&skc->skc_lock);
+		if (test_bit(KMC_BIT_GROWING, &skc->skc_flags)) {
+			skc->skc_obj_deadlock++;
+			rc = spl_emergency_alloc(skc, flags, obj);
+		} else {
+			rc = -ENOMEM;
 		}
 
-		rc = -ENOMEM;
+		spin_unlock(&skc->skc_lock);
 	}
 
 	SRETURN(rc);
@@ -1887,7 +1886,7 @@ spl_cache_refill(spl_kmem_cache_t *skc, spl_kmem_magazine_t *skm, int flags)
 	refill = MIN(skm->skm_refill, skm->skm_size - skm->skm_avail);
 	spin_lock(&skc->skc_lock);
 
-	while (refill > 0) {
+	while (refill > 0 && (~flags & __GFP_NORETRY)) {
 		/* No slabs available we may need to grow the cache */
 		if (list_empty(&skc->skc_partial_list)) {
 			spin_unlock(&skc->skc_lock);
@@ -1987,6 +1986,50 @@ spl_cache_shrink(spl_kmem_cache_t *skc, void *obj)
 }
 
 /*
+ * Helper function to deallocate object. It is used by spl_kmem_cache_free and
+ * spl_kmem_cache_alloc (upon constructor failure). It does not invoke the
+ * destructor.  The caller must hold skc->skc_ref and do its own sanity checks
+ * in assertions.
+ */
+static void
+spl_kmem_cache_dealloc(spl_kmem_cache_t *skc, void *obj)
+{
+	spl_kmem_magazine_t *skm;
+	unsigned long flags;
+	SENTRY;
+
+	/*
+	 * Only virtual slabs may have emergency objects and these objects
+	 * are guaranteed to have physical addresses.  They must be removed
+	 * from the tree of emergency objects and the freed.
+	 */
+	if ((skc->skc_flags & KMC_VMEM) && !kmem_virt(obj))
+		SGOTO(out, spl_emergency_free(skc, obj));
+
+	local_irq_save(flags);
+
+	/* Safe to update per-cpu structure without lock, but
+	 * no remote memory allocation tracking is being performed
+	 * it is entirely possible to allocate an object from one
+	 * CPU cache and return it to another. */
+	skm = skc->skc_mag[smp_processor_id()];
+	ASSERT(skm->skm_magic == SKM_MAGIC);
+
+	/* Per-CPU cache full, flush it to make space */
+	if (unlikely(skm->skm_avail >= skm->skm_size))
+		spl_cache_flush(skc, skm, skm->skm_refill);
+
+	/* Available space in cache, use it */
+	skm->skm_objs[skm->skm_avail++] = obj;
+
+	local_irq_restore(flags);
+out:
+
+	SEXIT;
+}
+
+
+/*
  * Allocate an object from the per-cpu magazine, or if the magazine
  * is empty directly allocate from a slab and repopulate the magazine.
  */
@@ -2020,16 +2063,26 @@ restart:
 		skm->skm_age = jiffies;
 	} else {
 		obj = spl_cache_refill(skc, skm, flags);
-		if (obj == NULL)
+		if (obj == NULL && (~flags & __GFP_NORETRY))
 			SGOTO(restart, obj = NULL);
 	}
 
 	local_irq_restore(irq_flags);
-	ASSERT(obj);
-	ASSERT(IS_P2ALIGNED(obj, skc->skc_obj_align));
 
-	/* Pre-emptively migrate object to CPU L1 cache */
-	prefetchw(obj);
+	if (skc->skc_ctor &&
+		skc->skc_ctor(obj, skc->skc_private, flags) != 0)
+	{
+		spl_kmem_cache_dealloc(skc, obj);
+		return NULL;
+	}
+
+	if (obj) {
+		ASSERT(IS_P2ALIGNED(obj, skc->skc_obj_align));
+
+		/* Pre-emptively migrate object to CPU L1 cache */
+		prefetchw(obj);
+	}
+
 	atomic_dec(&skc->skc_ref);
 
 	SRETURN(obj);
@@ -2045,41 +2098,16 @@ EXPORT_SYMBOL(spl_kmem_cache_alloc);
 void
 spl_kmem_cache_free(spl_kmem_cache_t *skc, void *obj)
 {
-	spl_kmem_magazine_t *skm;
-	unsigned long flags;
 	SENTRY;
 
 	ASSERT(skc->skc_magic == SKC_MAGIC);
 	ASSERT(!test_bit(KMC_BIT_DESTROY, &skc->skc_flags));
 	atomic_inc(&skc->skc_ref);
 
-	/*
-	 * Only virtual slabs may have emergency objects and these objects
-	 * are guaranteed to have physical addresses.  They must be removed
-	 * from the tree of emergency objects and the freed.
-	 */
-	if ((skc->skc_flags & KMC_VMEM) && !kmem_virt(obj))
-		SGOTO(out, spl_emergency_free(skc, obj));
+	if (skc->skc_dtor)
+		skc->skc_dtor(obj, skc->skc_private);
 
-	local_irq_save(flags);
-
-	/* Safe to update per-cpu structure without lock, but
-	 * no remote memory allocation tracking is being performed
-	 * it is entirely possible to allocate an object from one
-	 * CPU cache and return it to another. */
-	skm = skc->skc_mag[smp_processor_id()];
-	ASSERT(skm->skm_magic == SKM_MAGIC);
-
-	/* Per-CPU cache full, flush it to make space */
-	if (unlikely(skm->skm_avail >= skm->skm_size))
-		spl_cache_flush(skc, skm, skm->skm_refill);
-
-	/* Available space in cache, use it */
-	skm->skm_objs[skm->skm_avail++] = obj;
-
-	local_irq_restore(flags);
-out:
-	atomic_dec(&skc->skc_ref);
+	spl_kmem_cache_dealloc(skc, obj);
 
 	SEXIT;
 }
@@ -2426,6 +2454,12 @@ spl_kmem_init(void)
 	spl_kmem_init_tracking(&vmem_list, &vmem_lock, VMEM_TABLE_SIZE);
 #endif
 
+	spl_kmem_alloc_cache = kmem_cache_create("spl_kmem_alloc_cache",
+		sizeof(spl_kmem_alloc_t),
+		0,
+		0,
+		NULL);
+
 	init_rwsem(&spl_kmem_cache_sem);
 	INIT_LIST_HEAD(&spl_kmem_cache_list);
 	spl_kmem_cache_taskq = taskq_create("spl_kmem_cache",
@@ -2463,6 +2497,8 @@ spl_kmem_fini(void)
 	spl_kmem_fini_tracking(&kmem_list, &kmem_lock);
 	spl_kmem_fini_tracking(&vmem_list, &vmem_lock);
 #endif /* DEBUG_KMEM */
+
+	kmem_cache_destroy(spl_kmem_alloc_cache);
 
 	SEXIT;
 }
