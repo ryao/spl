@@ -57,45 +57,29 @@
 #endif
 
 /*
- * PF_NOFS is a per-process debug flag which is set in current->flags to
- * detect when a process is performing an unsafe allocation.  All tasks
- * with PF_NOFS set must strictly use KM_PUSHPAGE for allocations because
- * if they enter direct reclaim and initiate I/O the may deadlock.
- *
- * When debugging is disabled, any incorrect usage will be detected and
- * a call stack with warning will be printed to the console.  The flags
- * will then be automatically corrected to allow for safe execution.  If
- * debugging is enabled this will be treated as a fatal condition.
- *
- * To avoid any risk of conflicting with the existing PF_ flags.  The
- * PF_NOFS bit shadows the rarely used PF_MUTEX_TESTER bit.  Only when
- * CONFIG_RT_MUTEX_TESTER is not set, and we know this bit is unused,
- * will the PF_NOFS bit be valid.  Happily, most existing distributions
- * ship a kernel with CONFIG_RT_MUTEX_TESTER disabled.
+ * PF_MEMALLOC_NOIO is a per-process flag introduced in Linux 3.9.0. It is set
+ * in current->flags to indicate when thread may not perform I/O.
  */
-#if !defined(CONFIG_RT_MUTEX_TESTER) && defined(PF_MUTEX_TESTER)
-# define PF_NOFS			PF_MUTEX_TESTER
+#if !defined(PF_MEMALLOC_NOIO) && LINUX_VERSION_CODE <= KERNEL_VERSION(3,9,0)
+# define PF_MEMALLOC_NOIO              0x00080000
+#endif
 
 static inline void
 sanitize_flags(struct task_struct *p, gfp_t *flags)
 {
-	if (unlikely((p->flags & PF_NOFS) && (*flags & (__GFP_IO|__GFP_FS)))) {
-# ifdef NDEBUG
+	if (unlikely((p->flags & PF_MEMALLOC_NOIO) && (*flags & (__GFP_IO|__GFP_FS)))) {
+#ifdef NDEBUG
 		SDEBUG_LIMIT(SD_CONSOLE | SD_WARNING, "Fixing allocation for "
 		   "task %s (%d) which used GFP flags 0x%x with PF_NOFS set\n",
 		    p->comm, p->pid, flags);
 		spl_debug_dumpstack(p);
 		*flags &= ~(__GFP_IO|__GFP_FS);
-# else
+#else
 		PANIC("FATAL allocation for task %s (%d) which used GFP "
 		    "flags 0x%x with PF_NOFS set\n", p->comm, p->pid, flags);
-# endif /* NDEBUG */
+#endif /* NDEBUG */
 	}
 }
-#else
-# define PF_NOFS			0x00000000
-# define sanitize_flags(p, fl)		((void)0)
-#endif /* !defined(CONFIG_RT_MUTEX_TESTER) && defined(PF_MUTEX_TESTER) */
 
 /*
  * __GFP_NOFAIL looks like it will be removed from the kernel perhaps as
