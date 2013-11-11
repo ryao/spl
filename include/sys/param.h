@@ -30,6 +30,7 @@
 /* Pages to bytes and back */
 #define ptob(pages)			(pages << PAGE_SHIFT)
 #define btop(bytes)			(bytes >> PAGE_SHIFT)
+#define btopr(bytes)			((bytes + PAGESIZE - 1) >> PAGE_SHIFT)
 
 #define MAXUID				UINT32_MAX
 
