@@ -104,14 +104,9 @@ struct proc_dir_entry *proc_spl_kstat = NULL;
 #ifdef DEBUG_KMEM
 #define CTL_KMEM_KMEMUSED	CTL_UNNUMBERED /* Alloc'd kmem bytes */
 #define CTL_KMEM_KMEMMAX	CTL_UNNUMBERED /* Max alloc'd by kmem bytes */
-#define CTL_KMEM_VMEMUSED	CTL_UNNUMBERED /* Alloc'd vmem bytes */
-#define CTL_KMEM_VMEMMAX	CTL_UNNUMBERED /* Max alloc'd by vmem bytes */
 #define CTL_KMEM_SLAB_KMEMTOTAL	CTL_UNNUMBERED /* Total kmem slab size */
 #define CTL_KMEM_SLAB_KMEMALLOC	CTL_UNNUMBERED /* Alloc'd kmem slab size */
 #define CTL_KMEM_SLAB_KMEMMAX	CTL_UNNUMBERED /* Max kmem slab size */
-#define CTL_KMEM_SLAB_VMEMTOTAL	CTL_UNNUMBERED /* Total vmem slab size */
-#define CTL_KMEM_SLAB_VMEMALLOC	CTL_UNNUMBERED /* Alloc'd vmem slab size */
-#define CTL_KMEM_SLAB_VMEMMAX	CTL_UNNUMBERED /* Max vmem slab size */
 #endif
 
 #else /* HAVE_CTL_UNNUMBERED */
@@ -162,14 +157,9 @@ enum {
 #ifdef DEBUG_KMEM
 	CTL_KMEM_KMEMUSED,		/* Alloc'd kmem bytes */
 	CTL_KMEM_KMEMMAX,		/* Max alloc'd by kmem bytes */
-	CTL_KMEM_VMEMUSED,		/* Alloc'd vmem bytes */
-	CTL_KMEM_VMEMMAX,		/* Max alloc'd by vmem bytes */
 	CTL_KMEM_SLAB_KMEMTOTAL,	/* Total kmem slab size */
 	CTL_KMEM_SLAB_KMEMALLOC,	/* Alloc'd kmem slab size */
 	CTL_KMEM_SLAB_KMEMMAX,		/* Max kmem slab size */
-	CTL_KMEM_SLAB_VMEMTOTAL,	/* Total vmem slab size */
-	CTL_KMEM_SLAB_VMEMALLOC,	/* Alloc'd vmem slab size */
-	CTL_KMEM_SLAB_VMEMMAX,		/* Max vmem slab size */
 #endif
 };
 #endif /* HAVE_CTL_UNNUMBERED */
@@ -950,28 +940,6 @@ static struct ctl_table spl_kmem_table[] = {
                 .proc_handler = &proc_doulongvec_minmax,
         },
         {
-                CTL_NAME    (CTL_KMEM_VMEMUSED)
-                .procname = "vmem_used",
-                .data     = &vmem_alloc_used,
-# ifdef HAVE_ATOMIC64_T
-                .maxlen   = sizeof(atomic64_t),
-# else
-                .maxlen   = sizeof(atomic_t),
-# endif /* HAVE_ATOMIC64_T */
-                .mode     = 0444,
-                .proc_handler = &proc_domemused,
-        },
-        {
-                CTL_NAME    (CTL_KMEM_VMEMMAX)
-                .procname = "vmem_max",
-                .data     = &vmem_alloc_max,
-                .maxlen   = sizeof(unsigned long),
-                .extra1   = &table_min,
-                .extra2   = &table_max,
-                .mode     = 0444,
-                .proc_handler = &proc_doulongvec_minmax,
-        },
-        {
                 CTL_NAME    (CTL_KMEM_SLAB_KMEMTOTAL)
                 .procname = "slab_kmem_total",
 		.data     = (void *)(KMC_KMEM | KMC_TOTAL),
@@ -995,36 +963,6 @@ static struct ctl_table spl_kmem_table[] = {
                 CTL_NAME    (CTL_KMEM_SLAB_KMEMMAX)
                 .procname = "slab_kmem_max",
 		.data     = (void *)(KMC_KMEM | KMC_MAX),
-                .maxlen   = sizeof(unsigned long),
-                .extra1   = &table_min,
-                .extra2   = &table_max,
-                .mode     = 0444,
-                .proc_handler = &proc_doslab,
-        },
-        {
-                CTL_NAME    (CTL_KMEM_SLAB_VMEMTOTAL)
-                .procname = "slab_vmem_total",
-		.data     = (void *)(KMC_VMEM | KMC_TOTAL),
-                .maxlen   = sizeof(unsigned long),
-                .extra1   = &table_min,
-                .extra2   = &table_max,
-                .mode     = 0444,
-                .proc_handler = &proc_doslab,
-        },
-        {
-                CTL_NAME    (CTL_KMEM_SLAB_VMEMALLOC)
-                .procname = "slab_vmem_alloc",
-		.data     = (void *)(KMC_VMEM | KMC_ALLOC),
-                .maxlen   = sizeof(unsigned long),
-                .extra1   = &table_min,
-                .extra2   = &table_max,
-                .mode     = 0444,
-                .proc_handler = &proc_doslab,
-        },
-        {
-                CTL_NAME    (CTL_KMEM_SLAB_VMEMMAX)
-                .procname = "slab_vmem_max",
-		.data     = (void *)(KMC_VMEM | KMC_MAX),
                 .maxlen   = sizeof(unsigned long),
                 .extra1   = &table_min,
                 .extra2   = &table_max,
