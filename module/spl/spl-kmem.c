@@ -420,6 +420,15 @@ EXPORT_SYMBOL(strdup);
 void
 strfree(char *str)
 {
+	if (str == NULL) {
+		SDEBUG(SD_CONSOLE | SD_WARNING,
+			"Passed NULL pointer to strfree!",
+			lflags);
+
+		spl_debug_dumpstack(NULL);
+		return;
+	}
+
 	kmem_free(str, strlen(str) + 1);
 }
 EXPORT_SYMBOL(strfree);
