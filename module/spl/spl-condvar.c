@@ -205,6 +205,20 @@ __cv_timedwait_common(kcondvar_t *cvp, kmutex_t *mp,
 }
 
 clock_t
+__cv_reltimedwait(kcondvar_t *cvp, kmutex_t *mp, clock_t delta,
+    time_res_t resolution)
+{
+	clock_t expire_time = lbolt + delta;
+
+	/* XXX: Support other resolutions */
+	VERIFY3S(resolution, ==, TR_CLOCK_TICK);
+
+	return __cv_timedwait_common(cvp, mp, expire_time,
+		TASK_UNINTERRUPTIBLE);
+}
+EXPORT_SYMBOL(__cv_reltimedwait);
+
+clock_t
 __cv_timedwait(kcondvar_t *cvp, kmutex_t *mp, clock_t exp_time)
 {
 	return __cv_timedwait_common(cvp, mp, exp_time, TASK_UNINTERRUPTIBLE);
