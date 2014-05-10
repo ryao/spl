@@ -24,8 +24,8 @@
  *  Solaris Porting LAyer Tests (SPLAT) Mutex Tests.
 \*****************************************************************************/
 
+#include <linux/slab.h>
 #include <sys/mutex.h>
-#include <sys/taskq.h>
 #include "splat-internal.h"
 
 #define SPLAT_MUTEX_NAME                "mutex"
@@ -60,6 +60,7 @@ typedef struct mutex_priv {
         int mp_rc2;
 } mutex_priv_t;
 
+#if 0
 static void
 splat_mutex_test1_func(void *arg)
 {
@@ -336,6 +337,7 @@ out:
 
         return rc;
 }
+#endif
 
 static int
 splat_mutex_test4(struct file *file, void *arg)
@@ -409,12 +411,14 @@ splat_mutex_init(void)
         spin_lock_init(&sub->test_lock);
         sub->desc.id = SPLAT_SUBSYSTEM_MUTEX;
 
+#if 0
         SPLAT_TEST_INIT(sub, SPLAT_MUTEX_TEST1_NAME, SPLAT_MUTEX_TEST1_DESC,
                       SPLAT_MUTEX_TEST1_ID, splat_mutex_test1);
         SPLAT_TEST_INIT(sub, SPLAT_MUTEX_TEST2_NAME, SPLAT_MUTEX_TEST2_DESC,
                       SPLAT_MUTEX_TEST2_ID, splat_mutex_test2);
         SPLAT_TEST_INIT(sub, SPLAT_MUTEX_TEST3_NAME, SPLAT_MUTEX_TEST3_DESC,
                       SPLAT_MUTEX_TEST3_ID, splat_mutex_test3);
+#endif
         SPLAT_TEST_INIT(sub, SPLAT_MUTEX_TEST4_NAME, SPLAT_MUTEX_TEST4_DESC,
                       SPLAT_MUTEX_TEST4_ID, splat_mutex_test4);
 
@@ -426,9 +430,11 @@ splat_mutex_fini(splat_subsystem_t *sub)
 {
         ASSERT(sub);
         SPLAT_TEST_FINI(sub, SPLAT_MUTEX_TEST4_ID);
+#if 0
         SPLAT_TEST_FINI(sub, SPLAT_MUTEX_TEST3_ID);
         SPLAT_TEST_FINI(sub, SPLAT_MUTEX_TEST2_ID);
         SPLAT_TEST_FINI(sub, SPLAT_MUTEX_TEST1_ID);
+#endif
 
         kfree(sub);
 }

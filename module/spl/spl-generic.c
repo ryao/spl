@@ -31,7 +31,6 @@
 #include <sys/kmem.h>
 #include <sys/mutex.h>
 #include <sys/rwlock.h>
-#include <sys/taskq.h>
 #include <sys/tsd.h>
 #include <sys/zmod.h>
 #include <sys/debug.h>
@@ -618,9 +617,6 @@ __init spl_init(void)
 	if ((rc = spl_rw_init()))
 		SGOTO(out3, rc);
 
-	if ((rc = spl_taskq_init()))
-		SGOTO(out4, rc);
-
 	if ((rc = spl_vn_init()))
 		SGOTO(out5, rc);
 
@@ -661,8 +657,6 @@ out7:
 out6:
 	spl_vn_fini();
 out5:
-	spl_taskq_fini();
-out4:
 	spl_rw_fini();
 out3:
 	spl_mutex_fini();
@@ -689,7 +683,6 @@ spl_fini(void)
 	spl_kstat_fini();
 	spl_proc_fini();
 	spl_vn_fini();
-	spl_taskq_fini();
 	spl_rw_fini();
 	spl_mutex_fini();
 	spl_kmem_fini();

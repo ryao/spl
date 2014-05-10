@@ -8,7 +8,6 @@ obj-$(CONFIG_SPL) := $(MODULE).o
 
 $(MODULE)-objs += @top_srcdir@/module/splat/splat-ctl.o
 $(MODULE)-objs += @top_srcdir@/module/splat/splat-kmem.o
-$(MODULE)-objs += @top_srcdir@/module/splat/splat-taskq.o
 $(MODULE)-objs += @top_srcdir@/module/splat/splat-random.o
 $(MODULE)-objs += @top_srcdir@/module/splat/splat-mutex.o
 $(MODULE)-objs += @top_srcdir@/module/splat/splat-condvar.o

@@ -628,7 +628,6 @@ splat_init(void)
 	INIT_LIST_HEAD(&splat_module_list);
 
 	SPLAT_SUBSYSTEM_INIT(kmem);
-	SPLAT_SUBSYSTEM_INIT(taskq);
 	SPLAT_SUBSYSTEM_INIT(krng);
 	SPLAT_SUBSYSTEM_INIT(mutex);
 	SPLAT_SUBSYSTEM_INIT(condvar);
@@ -705,7 +704,6 @@ splat_fini(void)
 	SPLAT_SUBSYSTEM_FINI(condvar);
 	SPLAT_SUBSYSTEM_FINI(mutex);
 	SPLAT_SUBSYSTEM_FINI(krng);
-	SPLAT_SUBSYSTEM_FINI(taskq);
 	SPLAT_SUBSYSTEM_FINI(kmem);
 
 	ASSERT(list_empty(&splat_module_list));
