@@ -81,7 +81,6 @@ KERNEL_H = \
 	$(top_srcdir)/include/sys/sysmacros.h \
 	$(top_srcdir)/include/sys/systeminfo.h \
 	$(top_srcdir)/include/sys/systm.h \
-	$(top_srcdir)/include/sys/taskq.h \
 	$(top_srcdir)/include/sys/thread.h \
 	$(top_srcdir)/include/sys/time.h \
 	$(top_srcdir)/include/sys/timer.h \

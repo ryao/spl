@@ -24,9 +24,10 @@
  *  Solaris Porting LAyer Tests (SPLAT) Read/Writer Lock Tests.
 \*****************************************************************************/
 
+#include <linux/slab.h>
 #include <sys/rwlock.h>
-#include <sys/taskq.h>
 #include <sys/random.h>
+#include <sys/thread.h>
 #include "splat-internal.h"
 
 #define SPLAT_RWLOCK_NAME		"rwlock"
@@ -292,6 +293,7 @@ splat_rwlock_test1(struct file *file, void *arg)
 	return rc;
 }
 
+#if 0
 static void
 splat_rwlock_test2_func(void *arg)
 {
@@ -368,6 +370,7 @@ out:
 	kfree(rwp);
 	return rc;
 }
+#endif
 
 #define splat_rwlock_test3_helper(rwp,rex1,rex2,wex1,wex2,held_func,rc)	\
 do {									\
@@ -421,6 +424,7 @@ splat_rwlock_test3(struct file *file, void *arg)
 	return ((rc1 || rc2 || rc3) ? -EINVAL : 0);
 }
 
+#if 0
 static void
 splat_rwlock_test4_func(void *arg)
 {
@@ -525,6 +529,7 @@ out:
 
 	return rc;
 }
+#endif
 
 static int
 splat_rwlock_test5(struct file *file, void *arg)
@@ -640,12 +645,16 @@ splat_rwlock_init(void)
 
 	SPLAT_TEST_INIT(sub, SPLAT_RWLOCK_TEST1_NAME, SPLAT_RWLOCK_TEST1_DESC,
 		      SPLAT_RWLOCK_TEST1_ID, splat_rwlock_test1);
+#if 0
 	SPLAT_TEST_INIT(sub, SPLAT_RWLOCK_TEST2_NAME, SPLAT_RWLOCK_TEST2_DESC,
 		      SPLAT_RWLOCK_TEST2_ID, splat_rwlock_test2);
+#endif
 	SPLAT_TEST_INIT(sub, SPLAT_RWLOCK_TEST3_NAME, SPLAT_RWLOCK_TEST3_DESC,
 		      SPLAT_RWLOCK_TEST3_ID, splat_rwlock_test3);
+#if 0
 	SPLAT_TEST_INIT(sub, SPLAT_RWLOCK_TEST4_NAME, SPLAT_RWLOCK_TEST4_DESC,
 		      SPLAT_RWLOCK_TEST4_ID, splat_rwlock_test4);
+#endif
 	SPLAT_TEST_INIT(sub, SPLAT_RWLOCK_TEST5_NAME, SPLAT_RWLOCK_TEST5_DESC,
 		      SPLAT_RWLOCK_TEST5_ID, splat_rwlock_test5);
 	SPLAT_TEST_INIT(sub, SPLAT_RWLOCK_TEST6_NAME, SPLAT_RWLOCK_TEST6_DESC,
@@ -660,9 +669,13 @@ splat_rwlock_fini(splat_subsystem_t *sub)
 	ASSERT(sub);
 	SPLAT_TEST_FINI(sub, SPLAT_RWLOCK_TEST6_ID);
 	SPLAT_TEST_FINI(sub, SPLAT_RWLOCK_TEST5_ID);
+#if 0
 	SPLAT_TEST_FINI(sub, SPLAT_RWLOCK_TEST4_ID);
+#endif
 	SPLAT_TEST_FINI(sub, SPLAT_RWLOCK_TEST3_ID);
+#if 0
 	SPLAT_TEST_FINI(sub, SPLAT_RWLOCK_TEST2_ID);
+#endif
 	SPLAT_TEST_FINI(sub, SPLAT_RWLOCK_TEST1_ID);
 	kfree(sub);
 }

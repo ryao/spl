@@ -145,8 +145,6 @@ spl_debug_subsys2str(int subsys)
                 return "mutex";
         case SS_RNG:
                 return "rng";
-        case SS_TASKQ:
-                return "taskq";
         case SS_KMEM:
                 return "kmem";
         case SS_DEBUG:

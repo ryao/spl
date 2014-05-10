@@ -10,7 +10,6 @@ $(MODULE)-objs += @top_srcdir@/module/spl/spl-debug.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-proc.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-kmem.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-thread.o
-$(MODULE)-objs += @top_srcdir@/module/spl/spl-taskq.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-rwlock.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-vnode.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-err.o
