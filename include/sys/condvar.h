@@ -33,6 +33,20 @@
 #include <sys/callo.h>
 
 /*
+ * Time resolution values used in cv_reltimedwait() and cv_reltimedwait_sig()
+ * to specify how accurately a relative timeout must expire - if it can be
+ * anticipated or deferred.
+ */
+typedef enum {
+	TR_NANOSEC,
+	TR_MICROSEC,
+	TR_MILLISEC,
+	TR_SEC,
+	TR_CLOCK_TICK,
+	TR_COUNT
+} time_res_t;
+
+/*
  * The kcondvar_t struct is protected by mutex taken externally before
  * calling any of the wait/signal funs, and passed into the wait funs.
  */
@@ -60,6 +74,8 @@ extern clock_t __cv_timedwait_interruptible(kcondvar_t *cvp, kmutex_t *mp,
 	clock_t exp_time);
 extern	clock_t	cv_timedwait_hires(kcondvar_t *cvp, kmutex_t *mp,
 	hrtime_t tim, hrtime_t res, int flag);
+extern clock_t __cv_reltimedwait(kcondvar_t *cvp, kmutex_t *mp, clock_t delta,
+    time_res_t resolution);
 extern void __cv_signal(kcondvar_t *cvp);
 extern void __cv_broadcast(kcondvar_t *cvp);
 
@@ -71,6 +87,7 @@ extern void __cv_broadcast(kcondvar_t *cvp);
 #define cv_timedwait(cvp, mp, t)		__cv_timedwait(cvp, mp, t)
 #define cv_timedwait_interruptible(cvp, mp, t)                                \
 	__cv_timedwait_interruptible(cvp, mp, t)
+#define cv_reltimedwait(cvp, mp, t, r)		__cv_reltimedwait(cvp, mp, t,r)
 #define cv_signal(cvp)				__cv_signal(cvp)
 #define cv_broadcast(cvp)			__cv_broadcast(cvp)
 
