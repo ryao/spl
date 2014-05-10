@@ -25,4 +25,6 @@
 #ifndef _SPL_CPUVAR_H
 #define _SPL_CPUVAR_H
 
+extern int boot_max_ncpus;
+
 #endif /* SPL_CPUVAR_H */
