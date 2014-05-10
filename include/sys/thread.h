@@ -29,6 +29,7 @@
 #include <linux/mm.h>
 #include <linux/spinlock.h>
 #include <linux/kthread.h>
+#include <sys/klwp.h>
 #include <sys/types.h>
 #include <sys/sysmacros.h>
 #include <sys/tsd.h>

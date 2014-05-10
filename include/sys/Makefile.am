@@ -14,6 +14,7 @@ KERNEL_H = \
 	$(top_srcdir)/include/sys/byteorder.h \
 	$(top_srcdir)/include/sys/callb.h \
 	$(top_srcdir)/include/sys/callo.h \
+	$(top_srcdir)/include/sys/class.h \
 	$(top_srcdir)/include/sys/cmn_err.h \
 	$(top_srcdir)/include/sys/compress.h \
 	$(top_srcdir)/include/sys/condvar.h \
@@ -43,6 +44,7 @@ KERNEL_H = \
 	$(top_srcdir)/include/sys/inttypes.h \
 	$(top_srcdir)/include/sys/isa_defs.h \
 	$(top_srcdir)/include/sys/kidmap.h \
+	$(top_srcdir)/include/sys/klwp.h \
 	$(top_srcdir)/include/sys/kmem.h \
 	$(top_srcdir)/include/sys/kobj.h \
 	$(top_srcdir)/include/sys/kstat.h \
