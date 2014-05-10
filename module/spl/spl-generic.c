@@ -57,6 +57,9 @@ EXPORT_SYMBOL(spl_hostid);
 module_param(spl_hostid, ulong, 0644);
 MODULE_PARM_DESC(spl_hostid, "The system hostid.");
 
+int boot_max_ncpus = -1;
+EXPORT_SYMBOL(boot_max_ncpus);
+
 proc_t p0 = { 0 };
 EXPORT_SYMBOL(p0);
 
@@ -595,6 +598,8 @@ static int
 __init spl_init(void)
 {
 	int rc = 0;
+
+	boot_max_ncpus = num_present_cpus();
 
 	if ((rc = spl_debug_init()))
 		return rc;
