@@ -62,6 +62,7 @@ mutex_owner(kmutex_t *mp)
 #define mutex_owned(mp)         (mutex_owner(mp) == current)
 #define MUTEX_HELD(mp)          mutex_owned(mp)
 #define MUTEX_NOT_HELD(mp)      (!MUTEX_HELD(mp))
+#ifndef WANT_LMUTEX_INIT
 #undef mutex_init
 #define mutex_init(mp, name, type, ibc)                                 \
 ({                                                                      \
@@ -70,6 +71,7 @@ mutex_owner(kmutex_t *mp)
                                                                         \
         __mutex_init(&(mp)->m, #mp, &__key);                            \
 })
+#endif
 
 #undef mutex_destroy
 #define mutex_destroy(mp)                                               \

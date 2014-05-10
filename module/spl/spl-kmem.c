@@ -723,7 +723,6 @@ EXPORT_SYMBOL(kmem_free_debug);
 
 struct list_head spl_kmem_cache_list;   /* List of caches */
 struct rw_semaphore spl_kmem_cache_sem; /* Cache list lock */
-taskq_t *spl_kmem_cache_taskq;          /* Task queue for ageing / reclaim */
 
 static void spl_cache_shrink(spl_kmem_cache_t *skc, void *obj);
 
@@ -1212,16 +1211,19 @@ spl_magazine_age(void *data)
  * out of the magazines is just wasted work.
  */
 static void
-spl_cache_age(void *data)
+spl_cache_age(struct work_struct *w)
 {
-	spl_kmem_cache_t *skc = (spl_kmem_cache_t *)data;
-	taskqid_t id = 0;
+	struct delayed_work *work = to_delayed_work(w);
+	spl_kmem_cache_t *skc = container_of(work, spl_kmem_cache_t, skc_dwork);
 
 	ASSERT(skc->skc_magic == SKC_MAGIC);
+	ASSERT(test_bit(KMC_BIT_AGE, &skc->skc_flags));
 
 	/* Dynamically disabled at run time */
-	if (!(spl_kmem_cache_expire & KMC_EXPIRE_AGE))
+	if (!(spl_kmem_cache_expire & KMC_EXPIRE_AGE)) {
+		clear_bit(KMC_BIT_AGE, &skc->skc_flags);
 		return;
+	}
 
 	atomic_inc(&skc->skc_ref);
 
@@ -1230,19 +1232,11 @@ spl_cache_age(void *data)
 
 	spl_slab_reclaim(skc, skc->skc_reap, 0);
 
-	while (!test_bit(KMC_BIT_DESTROY, &skc->skc_flags) && !id) {
-		id = taskq_dispatch_delay(
-		    spl_kmem_cache_taskq, spl_cache_age, skc, TQ_SLEEP,
+	if (test_bit(KMC_BIT_DESTROY, &skc->skc_flags))
+		clear_bit(KMC_BIT_AGE, &skc->skc_flags);
+	else
+		(void) schedule_delayed_work(&skc->skc_dwork,
 		    ddi_get_lbolt() + skc->skc_delay / 3 * HZ);
-
-		/* Destroy issued after dispatch immediately cancel it */
-		if (test_bit(KMC_BIT_DESTROY, &skc->skc_flags) && id)
-			taskq_cancel_id(spl_kmem_cache_taskq, id);
-	}
-
-	spin_lock(&skc->skc_lock);
-	skc->skc_taskqid = id;
-	spin_unlock(&skc->skc_lock);
 
 	atomic_dec(&skc->skc_ref);
 }
@@ -1566,10 +1560,12 @@ spl_kmem_cache_create(char *name, size_t size, size_t align,
 		skc->skc_flags |= KMC_NOMAGAZINE;
 	}
 
-	if (spl_kmem_cache_expire & KMC_EXPIRE_AGE)
-		skc->skc_taskqid = taskq_dispatch_delay(spl_kmem_cache_taskq,
-		    spl_cache_age, skc, TQ_SLEEP,
+	if (spl_kmem_cache_expire & KMC_EXPIRE_AGE) {
+		set_bit(KMC_BIT_AGE, &skc->skc_flags);
+		INIT_DELAYED_WORK(&skc->skc_dwork, spl_cache_age);
+		(void) schedule_delayed_work(&skc->skc_dwork,
 		    ddi_get_lbolt() + skc->skc_delay / 3 * HZ);
+	}
 
 	down_write(&spl_kmem_cache_sem);
 	list_add_tail(&skc->skc_list, &spl_kmem_cache_list);
@@ -1602,7 +1598,6 @@ void
 spl_kmem_cache_destroy(spl_kmem_cache_t *skc)
 {
 	DECLARE_WAIT_QUEUE_HEAD(wq);
-	taskqid_t id;
 	SENTRY;
 
 	ASSERT(skc->skc_magic == SKC_MAGIC);
@@ -1615,11 +1610,9 @@ spl_kmem_cache_destroy(spl_kmem_cache_t *skc)
 	/* Cancel any and wait for any pending delayed tasks */
 	VERIFY(!test_and_set_bit(KMC_BIT_DESTROY, &skc->skc_flags));
 
-	spin_lock(&skc->skc_lock);
-	id = skc->skc_taskqid;
-	spin_unlock(&skc->skc_lock);
-
-	taskq_cancel_id(spl_kmem_cache_taskq, id);
+	/* Ping the work queue until it quits */
+	while (test_bit(KMC_BIT_AGE, &skc->skc_flags))
+		(void) flush_delayed_work(&skc->skc_dwork);
 
 	/* Wait until all current callers complete, this is mainly
 	 * to catch the case where a low memory situation triggers a
@@ -1699,11 +1692,11 @@ spl_cache_obj(spl_kmem_cache_t *skc, spl_kmem_slab_t *sks)
  * of partial slabs, and then waking any waiters.
  */
 static void
-spl_cache_grow_work(void *data)
+spl_cache_grow_work(struct work_struct *w)
 {
-	spl_kmem_alloc_t *ska = (spl_kmem_alloc_t *)data;
+	spl_kmem_alloc_t *ska = container_of(w, spl_kmem_alloc_t, ska_work);
 	spl_kmem_cache_t *skc = ska->ska_cache;
-	spl_kmem_slab_t *sks;
+	spl_kmem_slab_t *sks = NULL;
 
 	sks = spl_slab_alloc(skc, ska->ska_flags | KM_NOSLEEP);
 	spin_lock(&skc->skc_lock);
@@ -1783,9 +1776,9 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 		atomic_inc(&skc->skc_ref);
 		ska->ska_cache = skc;
 		ska->ska_flags = flags & ~__GFP_FS;
-		taskq_init_ent(&ska->ska_tqe);
-		taskq_dispatch_ent(spl_kmem_cache_taskq,
-		    spl_cache_grow_work, ska, 0, &ska->ska_tqe);
+		ska->ska_flags = flags;
+		INIT_WORK(&ska->ska_work, spl_cache_grow_work);
+		(void) schedule_work(&ska->ska_work);
 	}
 
 	/*
@@ -2432,8 +2425,6 @@ spl_kmem_init(void)
 
 	init_rwsem(&spl_kmem_cache_sem);
 	INIT_LIST_HEAD(&spl_kmem_cache_list);
-	spl_kmem_cache_taskq = taskq_create("spl_kmem_cache",
-	    1, maxclsyspri, 1, 32, TASKQ_PREPOPULATE);
 
 	spl_register_shrinker(&spl_kmem_cache_shrinker);
 
@@ -2446,7 +2437,6 @@ spl_kmem_fini(void)
 	SENTRY;
 
 	spl_unregister_shrinker(&spl_kmem_cache_shrinker);
-	taskq_destroy(spl_kmem_cache_taskq);
 
 #ifdef DEBUG_KMEM
 	/* Display all unreclaimed memory addresses, including the

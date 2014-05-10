@@ -24,6 +24,7 @@
  *  Solaris Porting LAyer Tests (SPLAT) Atomic Tests.
 \*****************************************************************************/
 
+#define WANT_LMUTEX_INIT
 #include <sys/atomic.h>
 #include <sys/thread.h>
 #include <linux/slab.h>
