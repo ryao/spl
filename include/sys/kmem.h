@@ -37,7 +37,6 @@
 #include <sys/types.h>
 #include <sys/vmsystm.h>
 #include <sys/kstat.h>
-#include <sys/taskq.h>
 
 /*
  * Memory allocation interfaces
@@ -347,9 +346,10 @@ enum {
 	KMC_BIT_GROWING         = 15,   /* Growing in progress */
 	KMC_BIT_REAPING		= 16,	/* Reaping in progress */
 	KMC_BIT_DESTROY		= 17,	/* Destroy in progress */
-	KMC_BIT_TOTAL		= 18,	/* Proc handler helper bit */
-	KMC_BIT_ALLOC		= 19,	/* Proc handler helper bit */
-	KMC_BIT_MAX		= 20,	/* Proc handler helper bit */
+	KMC_BIT_AGE		= 19,	/* Aging in progress */
+	KMC_BIT_TOTAL		= 19,	/* Proc handler helper bit */
+	KMC_BIT_ALLOC		= 20,	/* Proc handler helper bit */
+	KMC_BIT_MAX		= 21,	/* Proc handler helper bit */
 };
 
 /* kmem move callback return values */
@@ -440,7 +440,7 @@ typedef struct spl_kmem_slab {
 typedef struct spl_kmem_alloc {
 	struct spl_kmem_cache	*ska_cache;	/* Owned by cache */
 	int			ska_flags;	/* Allocation flags */
-	taskq_ent_t		ska_tqe;	/* Task queue entry */
+	struct work_struct	ska_work;	/* Linux bits for running us on the global workqueue */
 } spl_kmem_alloc_t;
 
 typedef struct spl_kmem_emergency {
@@ -469,7 +469,7 @@ typedef struct spl_kmem_cache {
 	uint32_t		skc_delay;	/* Slab reclaim interval */
 	uint32_t		skc_reap;	/* Slab reclaim count */
 	atomic_t		skc_ref;	/* Ref count callers */
-	taskqid_t		skc_taskqid;	/* Slab reclaim task */
+	struct delayed_work	skc_dwork;	/* Slab reclaim task */
 	struct list_head	skc_list;	/* List of caches linkage */
 	struct list_head	skc_complete_list;/* Completely alloc'ed */
 	struct list_head	skc_partial_list; /* Partially alloc'ed */

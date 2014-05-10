@@ -24,8 +24,8 @@
  *  Solaris Porting LAyer Tests (SPLAT) Condition Variable Tests.
 \*****************************************************************************/
 
-#include <linux/kthread.h>
 #include <sys/condvar.h>
+#include <sys/thread.h>
 #include "splat-internal.h"
 
 #define SPLAT_CONDVAR_NAME		"condvar"
