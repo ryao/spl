@@ -34,6 +34,8 @@ typedef struct callb_cpr {
         kmutex_t        *cc_lockp;
 } callb_cpr_t;
 
+#define CALLB_CPR_INIT_SAFE(curthread, name)
+
 #define CALLB_CPR_INIT(cp, lockp, func, name)   {               \
         (cp)->cc_lockp = lockp;                                 \
 }
