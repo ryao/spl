@@ -25,4 +25,6 @@
 #ifndef _SPL_SYSDC_H
 #define _SPL_SYSDC_H
 
+#define sysdc_thread_enter(t, dc, flags)
+
 #endif /* SPL_SYSDC_H */
