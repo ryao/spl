@@ -63,6 +63,11 @@ EXPORT_SYMBOL(boot_max_ncpus);
 proc_t p0 = { 0 };
 EXPORT_SYMBOL(p0);
 
+pgcnt_t spl_throttlefree = 0;
+EXPORT_SYMBOL(spl_throttlefree);
+module_param(spl_throttlefree, ulong, 0644);
+MODULE_PARM_DESC(spl_throttlefree, "Minimum number of free pages before throttle");
+
 #ifndef HAVE_KALLSYMS_LOOKUP_NAME
 DECLARE_WAIT_QUEUE_HEAD(spl_kallsyms_lookup_name_waitq);
 kallsyms_lookup_name_t spl_kallsyms_lookup_name_fn = SYMBOL_POISON;

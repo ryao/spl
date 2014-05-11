@@ -45,7 +45,9 @@
 #define physmem				totalram_pages
 #define freemem				nr_free_pages()
 #define availrmem			spl_kmem_availrmem()
+#define throttlefree			spl_throttlefree
 
+extern pgcnt_t throttlefree;		/* Conserve memory when below this threshold */
 extern pgcnt_t minfree;			/* Sum of zone->pages_min */
 extern pgcnt_t desfree;			/* Sum of zone->pages_low */
 extern pgcnt_t lotsfree;		/* Sum of zone->pages_high */
