@@ -60,6 +60,7 @@
 #define ASSERT(x)			((void)0)
 #define ASSERTF(x, y, z...)		((void)0)
 #define ASSERTV(x)
+#define IMPLY(x, y)			((void)0)
 #define VERIFY(cond)							\
 	(void)(unlikely(!(cond)) &&					\
 		spl_PANIC(__FILE__, __FUNCTION__, __LINE__,		\
@@ -130,6 +131,7 @@ do {									\
 #define ASSERT0(x)	VERIFY0(x)
 
 #define ASSERTV(x)	x
+#define IMPLY(x, y)	ASSERT((!(x)) || (y))
 #define VERIFY(x)	ASSERT(x)
 
 #endif /* NDEBUG */
