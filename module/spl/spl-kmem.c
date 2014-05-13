@@ -1469,7 +1469,7 @@ spl_kmem_cache_create(char *name, size_t size, size_t align,
 	/*
 	 * Allocate memory for a new cache and initialize it.
 	 */
-	skc = kmem_zalloc(sizeof(*skc), KM_SLEEP);
+	skc = kzalloc(sizeof(*skc), GFP_KERNEL);
 	if (skc == NULL)
 		SRETURN(NULL);
 
@@ -1590,7 +1590,7 @@ spl_kmem_cache_create(char *name, size_t size, size_t align,
 	SRETURN(skc);
 out:
 	kmem_free(skc->skc_name, skc->skc_name_size);
-	kmem_free(skc, sizeof(*skc));
+	kfree(skc);
 	SRETURN(NULL);
 }
 EXPORT_SYMBOL(spl_kmem_cache_create);
@@ -1660,7 +1660,7 @@ spl_kmem_cache_destroy(spl_kmem_cache_t *skc)
 	kmem_free(skc->skc_name, skc->skc_name_size);
 	spin_unlock(&skc->skc_lock);
 
-	kmem_free(skc, sizeof(*skc));
+	kfree(skc);
 
 	SEXIT;
 }
