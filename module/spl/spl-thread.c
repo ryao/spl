@@ -59,7 +59,6 @@ thread_generic_wrapper(void *arg)
 	ASSERT(tp->tp_magic == TP_MAGIC);
 	func = tp->tp_func;
 	args = tp->tp_args;
-	set_current_state(tp->tp_state);
 	set_user_nice((kthread_t *)current, PRIO_TO_NICE(tp->tp_pri));
 	kmem_free(tp->tp_name, tp->tp_name_size);
 	kmem_free(tp, sizeof(thread_priv_t));
@@ -133,7 +132,8 @@ __thread_create(caddr_t stk, size_t  stksize, thread_func_t func,
 		SRETURN(NULL);
 	}
 
-	wake_up_process(tsk);
+	if (state == TS_RUN)
+		wake_up_process(tsk);
 	SRETURN((kthread_t *)tsk);
 }
 EXPORT_SYMBOL(__thread_create);
