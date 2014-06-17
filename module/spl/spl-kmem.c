@@ -441,7 +441,8 @@ EXPORT_SYMBOL(strdup);
 void
 strfree(char *str)
 {
-	kmem_free(str, strlen(str) + 1);
+	if (str)
+		kmem_free(str, strlen(str) + 1);
 }
 EXPORT_SYMBOL(strfree);
 
