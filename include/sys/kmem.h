@@ -89,7 +89,6 @@ kmem_flags_convert(int flags)
 #define vmem_free(sz, fl)		kmem_free((sz), (fl))
 
 extern void *spl_kmem_alloc(size_t size, int flags);
-extern void *spl_kmem_alloc_node(size_t size, int flags, int node);
 extern void *spl_kmem_zalloc(size_t size, int flags);
 extern void spl_kmem_free(const void *buf, size_t size);
 
@@ -138,8 +137,6 @@ extern unsigned long long kmem_alloc_max;
 #  define kmem_zalloc(sz, fl)           kmem_alloc_track((sz), (fl)|__GFP_ZERO,\
                                              __FUNCTION__, __LINE__, \
 					     NUMA_NO_NODE)
-#  define kmem_alloc_node(sz, fl, nd)   kmem_alloc_track((sz), (fl),           \
-                                             __FUNCTION__, __LINE__, 1, nd)
 #  define kmem_free(ptr, sz)            kmem_free_track((ptr), (sz))
 
 extern void *kmem_alloc_track(size_t, int, const char *, int, int);
@@ -161,8 +158,6 @@ extern void kmem_free_track(const void *, size_t);
 #  define kmem_zalloc(sz, fl)           kmem_alloc_debug((sz), (fl)|__GFP_ZERO,\
                                              __FUNCTION__, __LINE__, \
 					     NUMA_NO_NODE)
-#  define kmem_alloc_node(sz, fl, nd)   kmem_alloc_debug((sz), (fl),           \
-                                             __FUNCTION__, __LINE__, 1, nd)
 #  define kmem_free(ptr, sz)            kmem_free_debug((ptr), (sz))
 
 extern void *kmem_alloc_debug(size_t, int, const char *, int, int);
@@ -179,7 +174,6 @@ extern void kmem_free_debug(const void *, size_t);
  */
 # define kmem_alloc(sz, fl)             spl_kmem_alloc((sz), (fl))
 # define kmem_zalloc(sz, fl)            spl_kmem_zalloc((sz), (fl))
-# define kmem_alloc_node(sz, fl, nd)    spl_kmem_alloc_node((sz), (fl), (nd))
 # define kmem_free(ptr, sz)             spl_kmem_free((ptr), (sz))
 
 #endif /* DEBUG_KMEM */
