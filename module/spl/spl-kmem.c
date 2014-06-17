@@ -902,9 +902,6 @@ spl_slab_alloc(spl_kmem_cache_t *skc, int flags)
 		list_add_tail(&sko->sko_list, &sks->sks_free_list);
 	}
 
-	list_for_each_entry(sko, &sks->sks_free_list, sko_list)
-		if (skc->skc_ctor)
-			skc->skc_ctor(sko->sko_addr, skc->skc_private, flags);
 out:
 	if (rc) {
 		if (skc->skc_flags & KMC_OFFSLAB)
@@ -1009,9 +1006,6 @@ spl_slab_reclaim(spl_kmem_cache_t *skc, int count, int flag)
 
 	list_for_each_entry_safe(sko, n, &sko_list, sko_list) {
 		ASSERT(sko->sko_magic == SKO_MAGIC);
-
-		if (skc->skc_dtor)
-			skc->skc_dtor(sko->sko_addr, skc->skc_private);
 
 		if (skc->skc_flags & KMC_OFFSLAB)
 			kv_free(skc, sko->sko_addr, size);
@@ -2028,11 +2022,10 @@ spl_kmem_cache_alloc(spl_kmem_cache_t *skc, int flags)
 		do {
 			int lflags = kmem_flags_convert(flags) | __GFP_COMP;
 			obj = kmem_cache_alloc(slc, lflags);
-			if (obj && skc->skc_ctor)
-				skc->skc_ctor(obj, skc->skc_private, flags);
 		} while ((obj == NULL) && !(flags & KM_NOSLEEP));
 
 		atomic_dec(&skc->skc_ref);
+		SGOTO(ret, 0);
 		SRETURN(obj);
 	}
 
@@ -2062,12 +2055,19 @@ restart:
 	ASSERT(obj);
 	ASSERT(IS_P2ALIGNED(obj, skc->skc_obj_align));
 
+ret:
 	/* Pre-emptively migrate object to CPU L1 cache */
-	prefetchw(obj);
+	if (obj)
+		prefetchw(obj);
+
+	if (obj && skc->skc_ctor)
+		skc->skc_ctor(obj, skc->skc_private, flags);
+
 	atomic_dec(&skc->skc_ref);
 
 	SRETURN(obj);
 }
+
 EXPORT_SYMBOL(spl_kmem_cache_alloc);
 
 /*
@@ -2088,12 +2088,15 @@ spl_kmem_cache_free(spl_kmem_cache_t *skc, void *obj)
 	atomic_inc(&skc->skc_ref);
 
 	/*
+	 * Run the destructor
+	 */
+	if (skc->skc_dtor)
+		skc->skc_dtor(obj, skc->skc_private);
+
+	/*
 	 * Free the object from the Linux underlying Linux slab.
 	 */
 	if (skc->skc_flags & KMC_SLAB) {
-		if (skc->skc_dtor)
-			skc->skc_dtor(obj, skc->skc_private);
-
 		kmem_cache_free(skc->skc_linux_cache, obj);
 		goto out;
 	}
