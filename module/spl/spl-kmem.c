@@ -1345,7 +1345,7 @@ spl_magazine_free(spl_kmem_magazine_t *skm)
 	ASSERT(skm->skm_magic == SKM_MAGIC);
 	ASSERT(skm->skm_avail == 0);
 
-	kmem_free(skm, size);
+	spl_kmem_free(skm, size);
 	SEXIT;
 }
 
