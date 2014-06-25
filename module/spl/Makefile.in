@@ -18,6 +18,7 @@ $(MODULE)-objs += @top_srcdir@/module/spl/spl-kobj.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-generic.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-atomic.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-mutex.o
+$(MODULE)-objs += @top_srcdir@/module/spl/spl-cyclic.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-kstat.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-condvar.o
 $(MODULE)-objs += @top_srcdir@/module/spl/spl-xdr.o
