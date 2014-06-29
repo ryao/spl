@@ -25,7 +25,6 @@ KERNEL_H = \
 	$(top_srcdir)/include/sys/crc32.h \
 	$(top_srcdir)/include/sys/cred.h \
 	$(top_srcdir)/include/sys/ctype.h \
-	$(top_srcdir)/include/sys/cyclic.h \
 	$(top_srcdir)/include/sys/ddi.h \
 	$(top_srcdir)/include/sys/debug.h \
 	$(top_srcdir)/include/sys/dirent.h \
