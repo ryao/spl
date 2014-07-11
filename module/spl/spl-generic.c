@@ -38,6 +38,8 @@
 #include <sys/kstat.h>
 #include <sys/utsname.h>
 #include <sys/file.h>
+#include <sys/disp.h>
+#include <sys/random.h>
 #include <linux/kmod.h>
 #include <linux/proc_compat.h>
 #include <spl-debug.h>
@@ -71,6 +73,62 @@ MODULE_PARM_DESC(spl_throttlefree, "Minimum number of free pages before throttle
 DECLARE_WAIT_QUEUE_HEAD(spl_kallsyms_lookup_name_waitq);
 kallsyms_lookup_name_t spl_kallsyms_lookup_name_fn = SYMBOL_POISON;
 #endif
+
+/*
+ * Xorshift Pseudo Random Number Generator based on work by Sebastiano Vigna
+ * "An experimental exploration of Marsaglia's xorshift generators, scrambled"
+ * http://arxiv.org/pdf/1402.6246v2.pdf
+ *
+ * random_get_pseudo_bytes() is an API function on Illumos whose sole purpose
+ * is to provide bytes containing random numbers, but is not required that they
+ * be of cryptographic quality and therefore can be quick.
+ */
+static DEFINE_PER_CPU(uint64_t, spl_pseudo_entropy);
+
+int
+random_get_pseudo_bytes(uint8_t *ptr, size_t len)
+{
+	uint64_t x, *xp;
+	ASSERT(ptr);
+
+	if (len < 0)
+		return (0);
+
+	kpreempt_disable();
+	xp = &per_cpu(spl_pseudo_entropy, smp_processor_id());
+	x = *xp;
+
+	while (len) {
+		union {
+			uint64_t ui64;
+			uint8_t byte[sizeof (uint64_t)];
+		} entropy;
+		int i = MIN(len, sizeof (uint64_t));
+
+		x ^= x >> 12;
+		x ^= x << 25;
+		x ^= x >> 27;
+
+		len -= i;
+		entropy.ui64 = x * 2685821657736338717ULL;
+
+		if (i == sizeof (uint64_t)) {
+			*((uint64_t *)ptr) = entropy.ui64;
+			ptr += sizeof (uint64_t);
+			continue;
+		}
+
+		while (i--)
+			*ptr++ = entropy.byte[i];
+	}
+
+	*xp = x;
+	kpreempt_enable();
+
+	return (0);
+}
+
+EXPORT_SYMBOL(random_get_pseudo_bytes);
 
 int
 highbit(unsigned long i)
@@ -598,12 +656,24 @@ set_kallsyms_lookup_name(void)
 }
 #endif
 
+static void
+__init spl_random_init(void)
+{
+	int i;
+
+	for (i = 0; i < NR_CPUS; i++)
+		get_random_bytes(&per_cpu(spl_pseudo_entropy, i),
+		    sizeof (uint64_t));
+}
+
 static int
 __init spl_init(void)
 {
 	int rc = 0;
 
 	boot_max_ncpus = num_present_cpus();
+
+	spl_random_init();
 
 	if ((rc = spl_debug_init()))
 		return rc;
