@@ -48,7 +48,6 @@
 
 
 /* XXX: Modify the code to stop using these */
-#define	PF_NOFS		PF_FSTRANS
 #define	KM_NODEBUG	0x0
 
 /*
@@ -76,6 +75,36 @@ kmem_flags_convert(int flags)
 		lflags |= __GFP_ZERO;
 
 	return lflags;
+}
+
+typedef struct {
+#ifdef DEBUG
+	struct task_struct *fstrans_thread;
+#endif
+	unsigned int saved_flags;
+} fstrans_cookie_t;
+
+static inline fstrans_cookie_t
+spl_fstrans_mark(void)
+{
+	fstrans_cookie_t cookie;
+
+	ASSERT(cookie.fstrans_thread = current);
+
+	cookie.saved_flags = current->flags & PF_FSTRANS;
+	current->flags |= PF_FSTRANS;
+
+	return cookie;
+}
+
+static inline void
+spl_fstrans_unmark(fstrans_cookie_t cookie)
+{
+	ASSERT(cookie.fstrans_thread == current);
+	ASSERT(current->flags & PF_FSTRANS);
+
+	current->flags &= ~(PF_FSTRANS);
+	current->flags |= cookie.saved_flags;
 }
 
 /*
