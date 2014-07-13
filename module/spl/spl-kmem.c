@@ -284,6 +284,27 @@ kmem_debugging(void)
 }
 EXPORT_SYMBOL(kmem_debugging);
 
+static inline void *
+spl_vmalloc (unsigned long size, gfp_t lflags, pgprot_t prot)
+{
+#if defined(memalloc_noio_save) && defined(memalloc_noio_restore)
+	void	*ptr;
+	unsigned noio_flag = 0;
+
+	if ((current->flags & PF_FSTRANS))
+		noio_flag = memalloc_noio_save();
+
+	ptr =  __vmalloc(size, lflags, prot);
+
+	if ((current->flags & PF_FSTRANS))
+		memalloc_noio_restore(noio_flag);
+
+	return (ptr);
+#else
+	return (__vmalloc(size, lflags, prot));
+#endif
+}
+
 void *
 spl_kmem_alloc_node(size_t size, int flags, int node)
 {
@@ -297,7 +318,7 @@ start:
 	 * __vmalloc_node() is not exported for our use.
 	 */
 	if (unlikely(size > PAGE_SIZE*2))
-		ptr =  __vmalloc(size, lflags, PAGE_KERNEL);
+		ptr =  spl_vmalloc(size, lflags, PAGE_KERNEL);
 	else
 		ptr = kmalloc_node(size, lflags, node);
 	if (ptr || (flags & (KM_NOSLEEP)))
@@ -734,7 +755,7 @@ kv_alloc(spl_kmem_cache_t *skc, int size, int flags)
 		ptr = (void *)__get_free_pages(lflags | __GFP_COMP,
 		    get_order(size));
 	else
-		ptr = __vmalloc(size, lflags | __GFP_HIGHMEM, PAGE_KERNEL);
+		ptr = spl_vmalloc(size, lflags | __GFP_HIGHMEM, PAGE_KERNEL);
 
 	/* Resulting allocated memory will be page aligned */
 	ASSERT(IS_P2ALIGNED(ptr, PAGE_SIZE));
