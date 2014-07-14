@@ -1720,7 +1720,7 @@ spl_cache_grow_work(struct work_struct *w)
 	}
 
 	atomic_dec(&skc->skc_ref);
-	clear_bit(KMC_BIT_GROWING, &skc->skc_flags);
+	clear_bit(KMC_BIT_GROWING_HIGH, &skc->skc_flags);
 	clear_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags);
 	wake_up_all(&skc->skc_waitq);
 	spin_unlock(&skc->skc_lock);
@@ -1732,9 +1732,16 @@ spl_cache_grow_work(struct work_struct *w)
  * Returns non-zero when a new slab should be available.
  */
 static int
-spl_cache_grow_wait(spl_kmem_cache_t *skc)
+spl_cache_growing_high_wait(spl_kmem_cache_t *skc)
 {
-	return !test_bit(KMC_BIT_GROWING, &skc->skc_flags);
+	return !test_bit(KMC_BIT_GROWING_HIGH, &skc->skc_flags);
+}
+
+static int
+spl_cache_grow_wait_bit(void *word)
+{
+	schedule();
+	return 0;
 }
 
 static int
@@ -1752,9 +1759,11 @@ spl_cache_reclaim_wait(void *word)
 static int
 spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 {
-	int remaining, rc;
+	int remaining, rc = 0;
 	SENTRY;
 
+	/* KM_ZERO is an internal flag for kmem_zalloc(). It is not allowed in slabs. */
+	ASSERT((flags & KM_ZERO) == 0);
 	ASSERT(skc->skc_magic == SKC_MAGIC);
 	ASSERT((skc->skc_flags & KMC_SLAB) == 0);
 	might_sleep();
@@ -1770,18 +1779,44 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 		SRETURN(rc ? rc : -EAGAIN);
 	}
 
-	/*
-	 * This is handled by dispatching a work request to the global work
-	 * queue.  This allows us to asynchronously allocate a new slab while
-	 * retaining the ability to safely fall back to a smaller synchronous
-	 * allocations to ensure forward progress is always maintained.
-	 */
-	if (test_and_set_bit(KMC_BIT_GROWING, &skc->skc_flags) == 0) {
-		spl_kmem_alloc_t *ska;
+	/* Coalesce all KM_SLEEP allocations */
+	if (flags == KM_SLEEP) {
+		if (test_and_set_bit(KMC_BIT_GROWING, &skc->skc_flags) == 0) {
+			spl_kmem_slab_t *sks = spl_slab_alloc(skc, flags);
 
-		ska = kmalloc(sizeof(*ska), kmem_flags_convert(flags));
-		if (ska == NULL) {
+			ASSERT(sks);
+
+			spin_lock(&skc->skc_lock);
+			skc->skc_slab_total++;
+			skc->skc_obj_total += sks->sks_objs;
+			list_add_tail(&sks->sks_list,
+				&skc->skc_partial_list);
+			spin_unlock(&skc->skc_lock);
+
 			clear_bit(KMC_BIT_GROWING, &skc->skc_flags);
+			wake_up_bit(&skc->skc_flags, KMC_BIT_GROWING);
+		} else {
+			wait_on_bit(&skc->skc_flags, KMC_BIT_GROWING,
+			    spl_cache_grow_wait_bit, TASK_UNINTERRUPTIBLE);
+		}
+		SRETURN(rc);
+	}
+
+	/*
+	 * We grow a slab in response to a high priority allocation (i.e. not
+	 * KM_SLEEP) by dispatching a work request to the global work queue.
+	 * This allows us to asynchronously allocate a new slab while retaining
+	 * the ability to safely fall back to a smaller synchronous allocations
+	 * to ensure forward progress is always maintained. If growth is in
+	 * progress when KM_NOSLEEP is issued, we immediately return that we
+	 * are out of memory.
+	 */
+	if (test_and_set_bit(KMC_BIT_GROWING_HIGH, &skc->skc_flags) == 0) {
+		spl_kmem_alloc_t *ska;
+		ska = kmalloc(sizeof(*ska),
+			kmem_flags_convert(flags | KM_NOSLEEP));
+		if (ska == NULL) {
+			clear_bit(KMC_BIT_GROWING_HIGH, &skc->skc_flags);
 			wake_up_all(&skc->skc_waitq);
 			SRETURN(-ENOMEM);
 		}
@@ -1792,6 +1827,9 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 		ska->ska_flags = flags;
 		INIT_WORK(&ska->ska_work, spl_cache_grow_work);
 		(void) schedule_work(&ska->ska_work);
+	} else {
+		if ((flags & KM_NOSLEEP))
+			SRETURN(-ENOMEM);
 	}
 
 	/*
@@ -1803,22 +1841,38 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 	 * this point only new emergency objects will be allocated until the
 	 * asynchronous allocation completes and clears the deadlocked flag.
 	 */
-	if (test_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags)) {
-		rc = spl_emergency_alloc(skc, flags, obj);
-	} else {
-		remaining = wait_event_timeout(skc->skc_waitq,
-					       spl_cache_grow_wait(skc), HZ);
+	if (test_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags))
+		SRETURN(spl_emergency_alloc(skc, flags, obj));
 
-		if (!remaining && test_bit(KMC_BIT_VMEM, &skc->skc_flags)) {
-			spin_lock(&skc->skc_lock);
-			if (test_bit(KMC_BIT_GROWING, &skc->skc_flags)) {
-				set_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags);
-				skc->skc_obj_deadlock++;
-			}
-			spin_unlock(&skc->skc_lock);
+	/*
+	 * Now we wait for our worker to return to us.
+	 */
+	remaining = wait_event_timeout(skc->skc_waitq,
+	       spl_cache_growing_high_wait(skc), HZ);
+
+	/*
+	 * Ideally, the worker will return within 1 second and we will be done,
+	 * but if the worker gets stuck, we have two cases. The first is that
+	 * we are using Linux's physical memory to do allocations. In that
+	 * case, there is nothing that we can do, so we return that we have no
+	 * memory. The second is that we are using Linux's virtual memory to do
+	 * allocations. In that case, we take the lock and report that we are
+	 * deadlocked. Since interrupts can preempt us, we do one last check to
+	 * see if we are still deadlocked upon existing the spinlock. If we
+	 * are, then we do an emergecy allocation.
+	 */
+	if (!remaining) {
+		if (test_bit(KMC_BIT_KMEM, &skc->skc_flags))
+			SRETURN(-ENOMEM);
+		spin_lock(&skc->skc_lock);
+		if (test_bit(KMC_BIT_GROWING_HIGH, &skc->skc_flags) &&
+		    !test_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags)) {
+			set_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags);
+			skc->skc_obj_deadlock++;
 		}
-
-		rc = -ENOMEM;
+		spin_unlock(&skc->skc_lock);
+		if (test_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags))
+			SRETURN(spl_emergency_alloc(skc, flags, obj));
 	}
 
 	SRETURN(rc);
