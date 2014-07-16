@@ -1722,6 +1722,7 @@ spl_cache_grow_work(struct work_struct *w)
 	atomic_dec(&skc->skc_ref);
 	clear_bit(KMC_BIT_GROWING_HIGH, &skc->skc_flags);
 	clear_bit(KMC_BIT_DEADLOCKED, &skc->skc_flags);
+	smp_mb__after_clear_bit();
 	wake_up_all(&skc->skc_waitq);
 	spin_unlock(&skc->skc_lock);
 
@@ -1794,6 +1795,7 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 			spin_unlock(&skc->skc_lock);
 
 			clear_bit(KMC_BIT_GROWING, &skc->skc_flags);
+			smp_mb__after_clear_bit();
 			wake_up_bit(&skc->skc_flags, KMC_BIT_GROWING);
 		} else {
 			wait_on_bit(&skc->skc_flags, KMC_BIT_GROWING,
@@ -1817,6 +1819,7 @@ spl_cache_grow(spl_kmem_cache_t *skc, int flags, void **obj)
 			kmem_flags_convert(flags | KM_NOSLEEP));
 		if (ska == NULL) {
 			clear_bit(KMC_BIT_GROWING_HIGH, &skc->skc_flags);
+			smp_mb__after_clear_bit();
 			wake_up_all(&skc->skc_waitq);
 			SRETURN(-ENOMEM);
 		}
