@@ -661,9 +661,16 @@ __init spl_random_init(void)
 {
 	int i;
 
-	for (i = 0; i < NR_CPUS; i++)
-		get_random_bytes(&per_cpu(spl_pseudo_entropy, i),
-		    sizeof (uint64_t));
+	for (i = 0; i < NR_CPUS; i++) {
+		uint64_t *wordp = &per_cpu(spl_pseudo_entropy, i);
+		get_random_bytes(wordp, sizeof (uint64_t));
+		if (*wordp == 0) {
+			*wordp = ~0 - i;
+			printk("SPL: get_random_bytes() returned 0 "
+				"when generating random seed for CPU %d. "
+				"Setting initial seed to %llx.", i, *wordp);
+		}
+	}
 }
 
 static int
