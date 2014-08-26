@@ -68,7 +68,6 @@ AC_DEFUN([SPL_AC_CONFIG_KERNEL], [
 	SPL_AC_2ARGS_VFS_UNLINK
 	SPL_AC_4ARGS_VFS_RENAME
 	SPL_AC_VFS_FSYNC
-	SPL_AC_2ARGS_VFS_FSYNC
 	SPL_AC_INODE_TRUNCATE_RANGE
 	SPL_AC_FS_STRUCT_SPINLOCK
 	SPL_AC_CRED_STRUCT
@@ -640,6 +639,16 @@ AC_DEFUN([SPL_LINUX_TRY_COMPILE],
 	[modules],
 	[test -s build/conftest.o],
 	[$3], [$4])
+])
+
+dnl #
+dnl # SPL_MSG_ERROR should be called whenever an unknown API is encountered.
+dnl # This kills the build process to prevent undefined behavior.
+dnl #
+AC_DEFUN([SPL_MSG_ERROR], [AC_MSG_ERROR([
+	*** $1
+	*** Please file an issue:
+	*** https://github.com/zfsonlinux/spl/issues/new])
 ])
 
 dnl #
@@ -2085,26 +2094,73 @@ AC_DEFUN([SPL_AC_KVASPRINTF],
 ])
 
 dnl #
-dnl # 2.6.29 API change,
-dnl # vfs_fsync() funcation added, prior to this use file_fsync().
+dnl # fsync API check
 dnl #
 AC_DEFUN([SPL_AC_VFS_FSYNC],
 	[AC_MSG_CHECKING([whether vfs_fsync() is available])
-	SPL_LINUX_TRY_COMPILE_SYMBOL([
-		#include <linux/fs.h>
-	], [
-		(void) vfs_fsync;
-	], [vfs_fsync], [fs/sync.c], [
+	SPL_CHECK_SYMBOL_EXPORT([vfs_fsync], [fs/sync.c], [
 		AC_MSG_RESULT(yes)
 		AC_DEFINE(HAVE_VFS_FSYNC, 1, [vfs_fsync() is available])
+		SPL_AC_2ARGS_VFS_FSYNC
+		if test $ac_status -ne 0; then
+			SPL_AC_3ARGS_VFS_FSYNC
+			if test $ac_status -ne 0; then
+				SPL_MSG_ERROR([Did not recognize vfs_fsync()])
+			fi
+		fi
+
 	], [
+		AC_MSG_RESULT(no)
+		SPL_AC_FILE_FSYNC
+		if test $ac_status -ne 0; then
+			SPL_MSG_ERROR([No fsync API recognized])
+		fi
+	])
+])
+
+dnl #
+dnl # Pre-2.6.29 API
+dnl # file_fsync() renamed to vfs_fsync()
+dnl #
+AC_DEFUN([SPL_AC_FILE_FSYNC], [
+	AC_MSG_CHECKING([whether file_fsync() is available])
+	SPL_LINUX_TRY_COMPILE([
+		#include <linux/fs.h>
+	],[
+		int r = file_fsync((struct file *) NULL,
+			(struct dentry *) NULL, (int) 0);
+		return r;
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_FILE_FSYNC, 1, [file_fsync() is available])
+	],[
 		AC_MSG_RESULT(no)
 	])
 ])
 
 dnl #
-dnl # 2.6.35 API change,
-dnl # Unused 'struct dentry *' removed from vfs_fsync() prototype.
+dnl # 2.6.29-2.6.34 API
+dnl # file_fsync() renamed to vfs_fsync()
+dnl #
+AC_DEFUN([SPL_AC_3ARGS_VFS_FSYNC], [
+	AC_MSG_CHECKING([whether vfs_fsync() wants 3 args])
+	SPL_LINUX_TRY_COMPILE([
+		#include <linux/fs.h>
+	],[
+		int r = vfs_fsync((struct file *) NULL,
+			(struct dentry *) NULL, (int) 0);
+		return r;
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_3ARGS_VFS_FSYNC, 1, [vfs_fsync() wants 3 args])
+	],[
+		AC_MSG_RESULT(no)
+	])
+])
+
+dnl #
+dnl # 2.6.35 API change
+dnl # Unused 'struct dentry *' removed from vfs_fsync() prototype
 dnl #
 AC_DEFUN([SPL_AC_2ARGS_VFS_FSYNC], [
 	AC_MSG_CHECKING([whether vfs_fsync() wants 2 args])
@@ -2302,11 +2358,8 @@ AC_DEFUN([SPL_AC_KERN_PATH],
 				  [kern_path() is available])
 		], [
 			AC_MSG_RESULT(no)
-			AC_MSG_ERROR([
-	*** Neither kern_path() nor path_lookup() is available.
-	*** Please file an issue:
-	*** https://github.com/zfsonlinux/spl/issues/new])
-
+			SPL_MSG_ERROR(
+				[Neither kern_path() nor path_lookup() is available])
 		])
 	])
 ])
