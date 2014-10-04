@@ -45,6 +45,23 @@
 #define	KM_NOSLEEP	0x0001	/* cannot block for memory; may fail */
 #define	KM_PUSHPAGE	0x0004	/* can block for memory; may use reserve */
 #define	KM_ZERO		0x1000	/* zero the allocation */
+#define	KM_USER		0x2000	/* Allow copies to/from userland */
+
+/*
+ * GrSecurity introduced a security feature in their patchset for the Linux
+ * 3.14 kernel where copies to/from user must occur to regions of memory that
+ * have been properly marked with SLAB_USERCOPY. We extend the kernel memory
+ * allocation flag syntax to add KM_USER so that the zio data buffers can be
+ * properly marked.
+ */
+#ifdef CONFIG_PAX_USERCOPY_SLABS
+# ifndef SLAB_USERCOPY
+#  error "CONFIG_PAX_USERCOPY_SLABS defined, but SLAB_USERCOPY missing"
+# endif
+#else
+# undef KM_USER
+# define KM_USER	0x0000
+#endif
 
 /* XXX: Modify the code to stop using these */
 #define	KM_NODEBUG	0x0
@@ -72,6 +89,9 @@ kmem_flags_convert(int flags)
 
 	if (flags & KM_ZERO)
 		lflags |= __GFP_ZERO;
+
+	if (flags & KM_USER)
+		lflags |= KM_USER;
 
 	return lflags;
 }
