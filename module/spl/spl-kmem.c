@@ -301,7 +301,7 @@ EXPORT_SYMBOL(kmem_debugging);
 static inline void *
 spl_vmalloc (unsigned long size, gfp_t lflags, pgprot_t prot)
 {
-#if defined(memalloc_noio_save) && defined(memalloc_noio_restore)
+#ifdef PF_MEMALLOC_NOIO
 	void	*ptr;
 	unsigned noio_flag = 0;
 
@@ -1719,7 +1719,16 @@ spl_cache_grow_work(struct work_struct *w)
 	spl_kmem_cache_t *skc = ska->ska_cache;
 	spl_kmem_slab_t *sks = NULL;
 
+#ifdef PF_MEMALLOC_NOIO
+	unsigned noio_flag = 0;
+
+	noio_flag = memalloc_noio_save();
 	sks = spl_slab_alloc(skc, ska->ska_flags | KM_NOSLEEP);
+	memalloc_noio_restore(noio_flag);
+#else
+	sks = spl_slab_alloc(skc, ska->ska_flags | KM_NOSLEEP);
+#endif
+
 	spin_lock(&skc->skc_lock);
 	if (sks) {
 		skc->skc_slab_total++;
