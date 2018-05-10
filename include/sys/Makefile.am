@@ -102,6 +102,12 @@ KERNEL_H = \
 	$(top_srcdir)/include/sys/zmod.h \
 	$(top_srcdir)/include/sys/zone.h
 
+if AVL_EMULATION
+KERNEL_H += \
+	$(top_srcdir)/include/sys/avl.h \
+	$(top_srcdir)/include/sys/avl_impl.h
+endif
+
 USER_H =
 
 EXTRA_DIST = $(COMMON_H) $(KERNEL_H) $(USER_H)

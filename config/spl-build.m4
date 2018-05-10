@@ -18,6 +18,7 @@ AC_DEFUN([SPL_AC_CONFIG_KERNEL], [
 	AC_SUBST(KERNELCPPFLAGS)
 
 	SPL_AC_TEST_MODULE
+	SPL_AC_AVL_EMULATION
 	SPL_AC_ATOMIC_SPINLOCK
 	SPL_AC_SHRINKER_CALLBACK
 	SPL_AC_CTL_NAME
@@ -752,4 +753,25 @@ AC_DEFUN([SPL_AC_ATOMIC_SPINLOCK], [
 
 	AC_MSG_CHECKING([whether kernel defines atomic64_t])
 	AC_MSG_RESULT([$have_atomic64_t])
+])
+
+dnl #
+dnl # Use the AVL tree implementation based on the Linux kernel's Red-Black
+dnl # tree implementation. This is only meant for debugging purposes.
+dnl #
+AC_DEFUN([SPL_AC_AVL_EMULATION], [
+	AC_ARG_ENABLE([avl-emulation],
+		[AS_HELP_STRING([--enable-avl-emulation],
+		[Emulated AVL tree support @<:@default=no@:>@])])
+
+	AM_CONDITIONAL([AVL_EMULATION],
+               [test "x$enable_avl_emulation" = xyes])
+
+	AS_IF([test "x$enable_avl_emulation" = xyes], [
+		AC_SUBST(AVL_EMULATION, [spl-avl.o])
+	])
+
+	AC_DEFINE([SPL_AVL_EMULATION], [1],
+		[AVL tree emulatin via RB-Trees for debugging purposes])
+
 ])
